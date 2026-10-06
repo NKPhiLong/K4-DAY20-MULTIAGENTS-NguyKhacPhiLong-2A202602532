@@ -6,3 +6,8 @@ __pycache__/
 *.egg-info/
 # Tài liệu và mã dành cho giảng viên (đáp án, bản cài đặt tham chiếu, bộ sinh dữ liệu). Chỉ giữ cục bộ.
 instructor/
+
+# Hệ đa tác tử: log, tệp do Code Agent sinh, CSDL demo (tái tạo được bằng create_demo_db)
+logs/
+outputs/
+data/
