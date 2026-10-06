@@ -140,7 +140,7 @@ async def main(iterations: int, rounds: int, concurrency: int, out: Path) -> Non
     conc = await concurrency_test(system, concurrency) if concurrency else None
     import os
     payload = {"timestamp": datetime.now(timezone.utc).isoformat(), "model": os.getenv("LAB_MODEL"),
-               "version": "v2 (single-pass evaluator, SVG chart tool, truncated handoff)",
+               "version": "v3 (v2 + terminal chart tool, concise data answers)",
                "overall": overall, "rounds": round_summaries, "concurrency": conc, "cases": cases}
     out.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
     print(f"\nOverall: {json.dumps(overall)}\nRounds: {json.dumps(round_summaries)}\n"

@@ -101,6 +101,8 @@ Các worker trong cùng một giai đoạn chạy song song (`asyncio.gather`). 
 | 10 | **v2: Evaluator một lượt** (`single_pass=True`): 1 lần gọi LLM trả điểm từng tiêu chí; `ValidationTool` và `ScoringTool` chạy tất định trong code | Benchmark v1: Evaluator agentic là nút cổ chai (11–21 s, 4–10k token) | LLM không còn tự chọn tool; chế độ agentic vẫn giữ (`single_pass=False`) |
 | 11 | **v2: tool `make_bar_chart_svg`** cho Code Agent | v1: Code Agent mất 3–5 vòng viết, chạy, sửa script vẽ SVG (tới 24 s, 13k token) | Thêm một tool; LLM vẫn có thể bỏ qua (xem mục 5) |
 | 12 | **v2: cắt dữ liệu bàn giao** ở 1500 ký tự mỗi kết quả | Giảm input token của các giai đoạn sau | Giai đoạn sau có thể thiếu chi tiết nếu kết quả trước rất dài |
+| 13 | **v3: "tool kết thúc"** (`BaseWorker.terminal_tools`; Code Agent: `make_bar_chart_svg`): nếu mọi tool call của một lượt thuộc tập này và đều thành công thì worker trả kết quả ngay, không gọi LLM thêm | v2: 18/18 lần Code Agent vẫn gọi `python_repl` sau khi vẽ xong, dù prompt đã dặn, nên **chỉ dặn trong prompt là không đủ** | Câu trả lời cuối là tóm tắt máy sinh từ kết quả tool (đường dẫn, số cột), không phải văn bản do LLM viết; tool lỗi thì LLM vẫn được thêm lượt để sửa |
+| 14 | **v3: Data Agent trả lời ngắn** (tối đa 8 dòng, không mở đầu/kết luận) | Thời gian sinh output tăng theo độ dài (Data Agent trong luồng phức tạp 6–9 s ở v2) | Ít diễn giải hơn |
 
 **Khó khăn đã gặp và cách xử lý (đều phát hiện bằng test):**
 
@@ -112,7 +114,7 @@ Các worker trong cùng một giai đoạn chạy song song (`asyncio.gather`). 
 
 ## 4. Kết quả test
 
-Tất cả chạy ngoại tuyến bằng mô hình giả `ScriptedChatModel` (0 token): `pytest tests_mas/ -v` cho **37/37 passed**. Bộ test của lab `pytest` (thư mục `tests/`) cho **32/32 passed**.
+Tất cả chạy ngoại tuyến bằng mô hình giả `ScriptedChatModel` (0 token): `pytest tests_mas/ -v` cho **38/38 passed**. Bộ test của lab `pytest` (thư mục `tests/`) cho **32/32 passed**.
 
 **Độ phủ mã** (`pytest-cov`, chỉ tiêu > 80%):
 
@@ -124,7 +126,7 @@ Tất cả chạy ngoại tuyến bằng mô hình giả `ScriptedChatModel` (0 
 | Tệp | Loại | Số test | Nội dung |
 |---|---|---|---|
 | `test_02_coordinator.py` | unit | 10/10 | init, parse (luật, tham số, ưu tiên, cache, chỉ gọi LLM khi luật không khớp), route, execute song song qua queue, aggregate (success/partial/error), timeout, retry, fallback, input không hợp lệ, vượt `max_tasks` |
-| `test_03_workers.py` | unit + giao tiếp | 11/11 | Data/Code/Evaluator (single-pass và agentic), guardrail `max_iterations`, tool không tồn tại, mô hình lỗi, MessageQueue (gửi/nhận/log/timeout/chưa đăng ký/đầy/loop mới), `handle_next`, **đếm token/tool theo từng task khi 8 task chạy song song trên một worker** |
+| `test_03_workers.py` | unit + giao tiếp | 12/12 | Data/Code/Evaluator (single-pass và agentic), guardrail `max_iterations`, tool không tồn tại, mô hình lỗi, MessageQueue (gửi/nhận/log/timeout/chưa đăng ký/đầy/loop mới), `handle_next`, **đếm token/tool theo từng task khi 8 task chạy song song trên một worker**, tool kết thúc (dừng ngay khi vẽ xong; tool lỗi thì LLM được thêm lượt) |
 | `test_04_tools.py` | unit | 8/8 | SQL (đúng giá trị; chặn DROP/DELETE/UPDATE/PRAGMA/đa câu lệnh; dữ liệu còn nguyên), REPL (chặn import, timeout, **không lộ khóa API**), path traversal, edit/run script, scoring, validation, comparison, report, aggregation, data quality, CSV, **biểu đồ SVG** (escape nhãn, validate input) |
 | `test_05_integration.py` | integration + e2e | 8/8 | coordinator ↔ worker ↔ tool với handoff, pipeline đủ 3 giai đoạn + đếm token, kết quả partial, độ trễ, 10 request đồng thời, cắt dữ liệu bàn giao, khởi tạo hệ thống mặc định (tạo CSDL demo) |
 
@@ -146,62 +148,58 @@ Tất cả chạy ngoại tuyến bằng mô hình giả `ScriptedChatModel` (0 
 ## 5. Phân tích hiệu suất
 
 **Lệnh và phạm vi đo:**
-- Lệnh: `python scripts_mas/benchmark.py --iterations 3 --rounds 3 --concurrency 10`, kết quả trong `benchmark_results.json`. Bản v1 trước tối ưu: 1 lượt, lưu ở `benchmark_results_v1.json`.
+- Lệnh: `python scripts_mas/benchmark.py --iterations 3 --rounds 3 --concurrency 10`. Kết quả v3 (hiện tại) ở `benchmark_results.json`; các bản trước ở `benchmark_results_v2.json` và `benchmark_results_v1.json` (v1 chỉ 1 lượt).
 - Mô hình `gpt-4.1-mini`, nhiệt độ 0, 3 kịch bản × 3 lần × **3 lượt** = 27 request tuần tự, cộng 10 request đồng thời.
 - Độ chính xác của Data Agent được chấm khách quan bằng cách so với giá trị SQL trực tiếp (sai số ≤ 0,5%).
 
-**Kết quả v2 theo kịch bản** (27 request):
+**Kết quả v3 theo kịch bản** (27 request):
 
 | Kịch bản | n | Min | Max | Avg | Median | P99 | Độ lệch chuẩn | Token TB | Thành công | Đúng số liệu | Điểm Evaluator TB |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| Simple data query | 9 | 2,25 s | 2,79 s | 2,45 s | 2,46 s | 2,77 s | 0,15 | 1 266 | 9/9 | 9/9 | – |
-| Code generation | 9 | 4,37 s | 5,89 s | 4,96 s | 4,70 s | 5,86 s | 0,53 | 2 617 | 9/9 | – | – |
-| Complex workflow | 9 | 10,47 s | 22,01 s | 16,57 s | 16,50 s | 21,98 s | 4,04 | 7 821 | 9/9 | 9/9 | 95,8 |
+| Simple data query | 9 | 1,99 s | 3,80 s | 2,47 s | 2,33 s | 3,71 s | 0,54 | 1 304 | 9/9 | 9/9 | – |
+| Code generation | 9 | 4,45 s | 5,62 s | 4,90 s | 4,78 s | 5,60 s | 0,39 | 2 762 | 9/9 | – | – |
+| Complex workflow | 9 | 5,33 s | 9,07 s | 6,30 s | 5,78 s | 8,98 s | 1,32 | 2 897 | 9/9 | 9/9 | 91,2 |
 
-**Nhiễu giữa 3 lượt** (cùng mã, cùng mô hình):
+**Nhiễu giữa 3 lượt** (cùng mã v3):
 
 | Lượt | P50 | P99 | Độ trễ TB | Token | Thành công |
 |---|---|---|---|---|---|
-| 1 | 5,47 s | 21,47 s | 8,03 s | 35 658 | 9/9 |
-| 2 | 4,70 s | 19,25 s | 7,65 s | 33 007 | 9/9 |
-| 3 | 4,56 s | 21,26 s | 8,30 s | 36 667 | 9/9 |
+| 1 | 4,80 s | 8,84 s | 4,95 s | 20 954 | 9/9 |
+| 2 | 4,55 s | 7,82 s | 4,35 s | 21 600 | 9/9 |
+| 3 | 5,06 s | 5,82 s | 4,36 s | 20 111 | 9/9 |
 
-P50 dao động 4,56–5,47 s giữa các lượt, nên một lượt đơn lẻ có thể nằm trên hoặc dưới ngưỡng 5 s. Đây là lý do cần nhiều lượt.
+P50 tính trên cả 27 request là 4,78 s, nhưng một lượt đơn lẻ có thể vượt ngưỡng 5 s (lượt 3: 5,06 s). Ngưỡng này sát với độ trễ của kịch bản Code generation (median 4,78 s).
 
-**So sánh trước và sau tối ưu (v1 → v2):**
+**Tiến trình tối ưu (v1 → v2 → v3):**
 
-| Chỉ số | v1 (1 lượt, 9 request) | v2 (3 lượt, 27 request) | Thay đổi |
+| Chỉ số | v1 (9 request) | v2 (27 request) | v3 (27 request) |
 |---|---|---|---|
-| Độ trễ P50 | 5,01 s | 4,70 s | −6% |
-| Độ trễ P99 | 50,76 s | 21,91 s | −57% |
-| Complex workflow, trung bình | 38,97 s | 16,57 s | −57% |
-| Complex workflow, token TB | 16 833 | 7 821 | −54% |
-| Evaluator trong complex workflow | 11,6–21,3 s; 4,4–10,4k token | 1,6–2,2 s; 0,6–1,1k token | khoảng −90% |
-| Token / request | khoảng 6 800 | 3 901 | −43% |
-| Thông lượng tuần tự | 3,85 req/phút | 7,51 req/phút | ×1,95 |
-| Thông lượng đồng thời (10 request) | không đo | **170 req/phút** (10/10 thành công, 3,5 s cho cả lô, P99 3,48 s, 1 290 token/request) | – |
-| Tỉ lệ lỗi | 0% | 0% | – |
+| Độ trễ P50 | 5,01 s | 4,70 s | 4,78 s |
+| Độ trễ P99 | 50,76 s | 21,91 s | **8,79 s** |
+| Độ trễ TB | 15,60 s | 7,99 s | 4,55 s |
+| Complex workflow, TB | 38,97 s | 16,57 s | **6,30 s** |
+| Complex workflow, token TB | 16 833 | 7 821 | 2 897 |
+| Token / request | khoảng 6 800 | 3 901 | **2 321** |
+| Thông lượng tuần tự | 3,85 req/phút | 7,51 req/phút | **13,17 req/phút** |
+| Thông lượng đồng thời (10 request) | không đo | 170 req/phút | **207 req/phút** (2,9 s cả lô, P99 2,90 s, 1 327 token/request) |
+| Đúng số liệu / tỉ lệ lỗi | 6/6; 0% | 18/18; 0% | 18/18; 0% |
 
-**Phân rã complex workflow v2:**
-- Data 2,7–9,5 s.
-- Code 5,9–12,2 s.
-- Evaluator 1,6–2,2 s.
+**Phân rã complex workflow v3:**
+- Data 2,2–5,5 s (2 lần chậm nhất có thêm một truy vấn).
+- Code **1,2–1,9 s** (v2: 5,9–12,2 s), vì tool kết thúc bỏ hết các lượt LLM thừa.
+- Evaluator 1,6–2,1 s.
 
-**Nút cổ chai còn lại:**
-1. **Code Agent bỏ qua một phần chỉ dẫn.** Ở 9/9 lần, nó gọi `make_bar_chart_svg` rồi vẫn gọi thêm `python_repl` (2 lần ở các lần chậm nhất) để "kiểm tra", dù prompt v2 nói kết quả tool đã xác nhận tệp. Ba lần chậm nhất (10,6–12,2 s) đúng là những lần có 2 lệnh `python_repl` (`logs/code_agent.log`). Câu bổ sung vào prompt không thay đổi hành vi: lượt đo **trước** khi thêm câu đó cũng có 9/9 lần gọi `python_repl` sau tool vẽ, nên cần chặn ở mức code chứ không thể chỉ dựa vào prompt.
-2. **Data Agent trong luồng phức tạp chậm hơn truy vấn đơn** (khoảng 6–7 s so với 2,5 s, cùng 2 lần gọi LLM) vì câu trả lời dài hơn (4 vùng, SQL, nhận xét). Thời gian sinh output tăng theo độ dài.
-3. **Ba giai đoạn tuần tự** là tổng ba độ trễ LLM. Đây là lý do P99 < 15 s chưa đạt.
+**Thay đổi nào mang lại gì:**
+1. *v1 → v2:* Evaluator một lượt (11–21 s xuống 1,6–2,2 s), tool vẽ SVG, cắt dữ liệu bàn giao.
+2. *v2 → v3:* tool kết thúc (Code Agent 7–12 s xuống 1,2–1,9 s; token Code Agent trong luồng phức tạp 3–8k xuống 0,7–1,2k) và Data Agent trả lời ngắn.
 
 **Profile:**
-- *Mock, 0 token* (`scripts_mas/profile_system.py`): 50 request mất 1,36 s, trong đó 1,18 s chờ mock worker. Overhead coordinator + queue + log khoảng 3,5 ms/request.
-- *Mô hình thật* (`--real`, 5 request, lưu ở `report/profile_real.txt`): 47,47 s, trong đó luồng chính chờ ở event loop (`select.kqueue`) 47,44 s; `coordinator.handle_request` tự tốn 0,007 s.
-- *Giới hạn của cProfile:* chỉ đo luồng chính; các worker chạy trong thread pool nên phần gọi HTTP không xuất hiện trong bảng.
-- *Kết luận:* thời gian gần như hoàn toàn là chờ API LLM.
+- *Mock, 0 token* (`scripts_mas/profile_system.py`): overhead coordinator + queue + log khoảng 3,5 ms/request.
+- *Mô hình thật* (`--real`, 5 request, chạy trên v2, lưu ở `report/profile_real.txt`): luồng chính chờ ở event loop 47,44/47,47 s; `coordinator.handle_request` tự tốn 0,007 s.
+- *Giới hạn:* cProfile chỉ đo luồng chính, các worker chạy trong thread pool nên không hiện trong bảng.
+- *Kết luận:* thời gian gần như hoàn toàn là chờ API LLM, nên tối ưu đúng chỗ là **giảm số lượt LLM**.
 
-**Đề xuất tiếp theo** (chưa làm):
-1. Chặn gọi lại `python_repl` sau `make_bar_chart_svg` ở mức code (ví dụ trả kết quả cuối ngay khi tool vẽ xong cho các yêu cầu chỉ cần biểu đồ).
-2. Cho Data Agent trả JSON ngắn thay vì văn bản dài.
-3. Chạy Evaluator song song với bước ghi tệp khi không cần kết quả của Code Agent.
+**Còn lại:** token trung bình 2 321/request (chỉ tiêu 1 500). Phân tích ở mục 7.
 
 ## 6. Phân tích lỗi và khả năng chống chịu
 
@@ -226,16 +224,18 @@ Benchmark v2 không gặp lỗi tự nhiên nào (0/27 + 0/10).
 
 Chỉ tiêu "dự kiến" lấy từ bảng chỉ tiêu của hướng dẫn Phần 5.3.
 
-| Khía cạnh | Dự kiến | v1 | v2 (hiện tại) | Đánh giá |
-|---|---|---|---|---|
-| Độ trễ P50 | < 5 s | 5,01 s | **4,70 s** | Đạt trên tổng 27 request (một lượt đơn lẻ 5,47 s, nên sát ngưỡng) |
-| Độ trễ P99 | < 15 s | 50,8 s | 21,9 s | **Chưa đạt**: 3 giai đoạn LLM tuần tự + Code Agent gọi thêm `python_repl` (mục 5) |
-| Thông lượng | > 10 req/phút | 3,85 (tuần tự) | **170 (10 đồng thời)**; 7,51 (tuần tự) | Đạt khi chạy đồng thời; tuần tự bị giới hạn bởi độ trễ API |
-| Tỉ lệ lỗi | < 1% | 0% (0/9) | **0%** (0/37) | Đạt |
-| Token | 150k / 100 request | khoảng 680k / 100 | 390k / 100 (3 901/request) | **Chưa đạt** do complex workflow (7 821 token); truy vấn đơn 1 266 token, tức 127k / 100, là đạt |
-| Độ chính xác số liệu | – | 6/6 | **18/18** khớp ground truth SQL | Đạt |
-| Độ phủ mã | > 80% | chưa đo | **95%** (hệ đa tác tử), 90% (lab) | Đạt |
-| Test | toàn bộ đạt | 32/32 | **37/37** + 32/32 | Đạt |
+| Khía cạnh | Dự kiến | v1 | v2 | v3 (hiện tại) | Đánh giá |
+|---|---|---|---|---|---|
+| Độ trễ P50 | < 5 s | 5,01 s | 4,70 s | **4,78 s** | Đạt (một lượt đơn lẻ có thể 5,06 s) |
+| Độ trễ P99 | < 15 s | 50,8 s | 21,9 s | **8,79 s** | Đạt |
+| Thông lượng | > 10 req/phút | 3,85 | 7,51; 170 đồng thời | **13,17 tuần tự; 207 đồng thời** | Đạt |
+| Tỉ lệ lỗi | < 1% | 0% (0/9) | 0% (0/37) | **0%** (0/37) | Đạt |
+| Token | 150k / 100 request | khoảng 680k / 100 | 390k / 100 | 232k / 100 | **Chưa đạt** (xem dưới) |
+| Độ chính xác số liệu | – | 6/6 | 18/18 | **18/18** | Đạt |
+| Độ phủ mã | > 80% | chưa đo | 95% | **95%** (hệ đa tác tử), 90% (lab) | Đạt |
+| Test | toàn bộ đạt | 32/32 | 37/37 | **38/38** + 32/32 | Đạt |
+
+**Vì sao chỉ tiêu token chưa đạt:** với kiến trúc 3 agent, mức thấp nhất đo được của luồng phức tạp đã là khoảng 2 600 token (Data khoảng 1 410, Code khoảng 690, Evaluator khoảng 460). Truy vấn đơn đã là 1 304. Kịch bản Code generation cần ít nhất 3 lượt LLM (tạo dữ liệu mẫu, viết script, chạy), mỗi lượt gửi lại system prompt và schema của 5 tool, nên tốn 2 762. Trung bình 1 500 token/request vì vậy chỉ đạt được nếu gộp các agent hoặc bỏ schema tool. Đó sẽ là đổi kiến trúc mà bài yêu cầu (coordinator + 3 worker). Truy vấn đơn (1 304 token, tức 130k / 100 request) đã nằm trong chỉ tiêu.
 
 **Những gì tốt:**
 - Mẫu `reply_to` loại bỏ race.
@@ -283,23 +283,28 @@ Chỉ tiêu "dự kiến" lấy từ bảng chỉ tiêu của hướng dẫn Ph�
 4. **Phân loại theo từ khóa dễ sai với câu lạ;** LLM fallback chỉ dùng khi không khớp luật nào.
 5. **Benchmark vẫn nhỏ:** 3 kịch bản × 9 request, một mô hình, CSDL tổng hợp. Độ lệch chuẩn của complex workflow là 4,0 s.
 6. **Evaluator là LLM chấm LLM:** điểm 95,8 không phải bằng chứng chất lượng. Chỉ số liệu được kiểm chứng khách quan (18/18).
-7. **P99 < 15 s và 150k token / 100 request chưa đạt** với luồng 3 giai đoạn (mục 7).
+7. **Chỉ tiêu 150k token / 100 request chưa đạt** (232k / 100). Mức sàn của luồng 3 agent khoảng 2 600 token (mục 7). P99 đã đạt ở v3 (8,79 s).
 8. **cProfile không đo được thread worker;** phân tích thời gian của worker dựa trên log `task_end`.
 
 ## 10. Kết luận và bước tiếp theo
 
-Hệ thống gồm 4 agent giao tiếp qua `MessageQueue` với mẫu `reply_to`, có timeout, retry, fallback và giới hạn vòng lặp. Kết quả đo được:
-- 37/37 test ngoại tuyến, độ phủ 95%.
+Hệ thống gồm 4 agent giao tiếp qua `MessageQueue` với mẫu `reply_to`, có timeout, retry, fallback, giới hạn vòng lặp và tool kết thúc. Kết quả đo được:
+- 38/38 test ngoại tuyến, độ phủ 95%.
 - Trên mô hình thật: 37/37 request thành công, 18/18 câu trả lời số liệu khớp ground truth.
 - Retry, fallback và timeout hoạt động với lỗi API thật (401).
 
-Bản v2 tối ưu đúng các nút cổ chai đo được: P99 giảm 57%, token mỗi request giảm 43%, P50 4,7 s và thông lượng đồng thời 170 req/phút đạt chỉ tiêu. P99 (21,9 s) và token cho luồng 3 giai đoạn vẫn chưa đạt.
+Qua ba vòng tối ưu, mỗi vòng nhắm đúng nút cổ chai đo được:
+- P99 giảm từ 50,8 s xuống 8,79 s.
+- Token mỗi request giảm từ khoảng 6 800 xuống 2 321.
+- Thông lượng tuần tự tăng từ 3,85 lên 13,17 req/phút.
+
+Hệ thống đạt 4/5 chỉ tiêu; chỉ tiêu token chưa đạt vì giới hạn của chính kiến trúc 3 agent. Bài học chính: những hành vi thừa của LLM phải được chặn **ở mức code** (Evaluator một lượt, tool kết thúc). Lời dặn trong prompt không thay đổi hành vi (18/18 lần vẫn gọi `python_repl`).
 
 **Bước tiếp theo:**
 1. *Ngắn hạn:*
-   - Chặn `python_repl` thừa sau `make_bar_chart_svg` ở mức code.
-   - Data Agent trả JSON ngắn.
+   - Rút gọn schema tool và system prompt để hạ token.
    - Backoff khi gặp 429 và circuit breaker.
+   - Cache kết quả cho câu hỏi dữ liệu lặp lại.
 2. *Trung hạn:*
    - Redis Streams thay `asyncio.Queue`.
    - Worker chạy trong tiến trình riêng để hủy được khi timeout.
@@ -321,7 +326,7 @@ Bản v2 tối ưu đúng các nút cổ chai đo được: P99 giảm 57%, toke
 ## Phụ lục B: Lệnh tái lập
 
 ```bash
-pytest tests_mas/ -v                                                    # 37 passed (0 token)
+pytest tests_mas/ -v                                                    # 38 passed (0 token)
 pytest tests_mas/ --cov=src.agents --cov=src.communication --cov=src.tools \
        --cov=src.coordinator --cov=src.system --cov=src.base_agent --cov=src.logger   # 95%
 python scripts_mas/test_coordinator_standalone.py                      # 3/3 (0 token)

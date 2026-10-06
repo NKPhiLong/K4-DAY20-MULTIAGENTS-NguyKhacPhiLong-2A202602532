@@ -5,6 +5,7 @@ from src.tools.code_tools import CreateFileTool, EditFileTool, PythonREPLTool, R
 
 class CodeAgent(BaseWorker):
     result_type = "code"
+    terminal_tools = frozenset({"make_bar_chart_svg"})   # v3: vẽ xong là xong, không cho LLM chạy thêm mã kiểm tra
 
     def __init__(self, model, output_dir, name: str = "code_agent", **kwargs):
         tools = [PythonREPLTool(output_dir), CreateFileTool(output_dir), EditFileTool(output_dir), RunScriptTool(output_dir),

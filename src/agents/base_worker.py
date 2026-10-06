@@ -16,6 +16,9 @@ class WorkerError(Exception):
 class BaseWorker(BaseAgent):
     result_type = "generic"      # "data" | "code" | "evaluation": coordinator dùng để gộp kết quả
     system_prompt = ""
+    # Tool "kết thúc": nếu MỌI tool call của một lượt thuộc tập này và đều thành công, worker trả kết quả ngay
+    # mà không gọi LLM thêm lượt nào (guardrail ở mức code; benchmark v2 cho thấy chỉ dặn trong prompt là không đủ).
+    terminal_tools: frozenset = frozenset()
 
     def __init__(self, name: str, model, tools, max_iterations: int = 6, max_tool_output: int = 6000):
         super().__init__(name, model)
@@ -43,9 +46,14 @@ class BaseWorker(BaseAgent):
                 if not response.tool_calls:
                     status, content = "success", self._content(response)
                     break
+                results = []
                 for tc in response.tool_calls:
                     result = self._execute_tool(tc["name"], tc.get("args") or {}, used)
+                    results.append((tc["name"], result))
                     messages.append(ToolMessage(content=self._to_text(result), tool_call_id=tc.get("id") or tc["name"]))
+                if self.terminal_tools and all(n in self.terminal_tools and r.get("status") == "success" for n, r in results):
+                    status, content = "success", self._terminal_answer(response, results)
+                    break
             else:
                 status, content = "error", f"max_iterations ({self.max_iterations}) reached without a final answer"
             out = {"status": status, "worker": self.name, "type": self.result_type,
@@ -94,6 +102,14 @@ class BaseWorker(BaseAgent):
         if used is not None:
             used.append(tool_name)
         return tool.invoke(tool_input)
+
+    def _terminal_answer(self, response, results) -> str:
+        """Câu trả lời cuối dựng từ kết quả tool kết thúc (không tốn thêm lượt LLM)."""
+        lines = [self._content(response).strip()] if self._content(response).strip() else []
+        for name, r in results:
+            details = ", ".join(f"{k}={v}" for k, v in r.items() if k != "status")
+            lines.append(f"{name}: {details}")
+        return "\n".join(lines)
 
     def _to_text(self, result) -> str:
         return json.dumps(result, ensure_ascii=False, default=str)[: self.max_tool_output]

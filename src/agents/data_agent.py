@@ -21,5 +21,6 @@ class DataAgent(BaseWorker):
             "style ranges. Q1=Jan-Mar, Q2=Apr-Jun, Q3=Jul-Sep, Q4=Oct-Dec.\n"
             "3. Never invent numbers: every number in your answer must come from a tool result.\n"
             "4. Return concise insights with the exact figures (rounded to 2 decimals) and the SQL you used, "
-            "e.g. 'Q3 revenue: 123456.78 (SQL: SELECT ...)'. If the question cannot be answered from the data, say so."
+            "e.g. 'Q3 revenue: 123456.78 (SQL: SELECT ...)'. If the question cannot be answered from the data, say so.\n"
+            "5. Be brief: at most 8 short lines, no introduction and no closing remarks."
         )

@@ -139,3 +139,16 @@ def test_concurrent_tasks_on_one_worker_have_per_task_metrics(demo_db):
     assert all(o["metadata"]["tokens"]["total"] == 240 for o in outs)              # 2 lần gọi x 120, không cộng lẫn
     assert all(o["metadata"]["tools_used"] == ["query_database"] for o in outs)
     assert agent.tokens["total"] == 8 * 240                                        # bộ đếm tổng vẫn đúng
+
+
+def test_terminal_tool_ends_the_loop_without_extra_llm_call(tmp_path, scripted):
+    """v3: sau khi make_bar_chart_svg thành công, Code Agent trả kết quả ngay (không gọi LLM thêm)."""
+    model = scripted(tool_call("make_bar_chart_svg", {"filename": "c.svg", "labels": ["N", "S"], "values": [3, 1]}),
+                     AIMessage(content="should never be reached"))
+    out = CodeAgent(model, tmp_path).process("Chart the data")
+    assert out["status"] == "success" and model.calls == 1 and (tmp_path / "c.svg").exists()
+    assert "make_bar_chart_svg: path=c.svg" in out["result"] and out["metadata"]["tools_used"] == ["make_bar_chart_svg"]
+    failing = scripted(tool_call("make_bar_chart_svg", {"filename": "c.png", "labels": ["N"], "values": [1]}),
+                       AIMessage(content="fixed it"))
+    out = CodeAgent(failing, tmp_path).process("Chart the data")          # tool lỗi -> LLM được thêm lượt để sửa
+    assert out["status"] == "success" and failing.calls == 2 and out["result"] == "fixed it"
