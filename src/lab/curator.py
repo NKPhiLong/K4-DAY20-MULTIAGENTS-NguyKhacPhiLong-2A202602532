@@ -15,9 +15,21 @@ Below are the failed checks (name and the review bot's comment) and the end of t
 Find the general PROCESS mistakes and the organisation conventions that were violated (not task-specific answers),
 and write at most {max_skills} short skills that prevent those mistakes on NEW tasks of the same kind.
 
+Two kinds of lessons matter:
+1. Organisation conventions (checks named rule_*, feedback starting with "RULE:"). The task statement never
+   mentions them, so the agent can only learn them from your skill: copy every convention VERBATIM and
+   completely - exact output file names, header lines, JSON keys, constant values, units, sort orders and
+   formats stated in the RULE text. Do not soften them into examples ("e.g.") or "if required".
+2. Process mistakes visible in the traces (for example computing results by hand instead of writing and running
+   a script, not handling time-zone offsets, not re-checking the output against every rule before finishing).
+
+Write ONE skill per kind of task seen in the runs (for example fixing a code package, analysing a data file,
+parsing a log file), each with that kind's conventions and process lessons, so that a skill stays focused.
+
 Rules:
 - Skills must be general: never mention a task id, a data file, function or column name of a specific task,
-  an answer or a number taken from the data. File names or JSON keys REQUIRED by a convention are allowed.
+  an answer or a number taken from the data. File names, JSON keys and constant values REQUIRED by a convention
+  are allowed (they are the rule itself).
 - Each skill has a YAML frontmatter with `name` (lowercase words joined by hyphens) and `description`
   (one sentence starting with "Use when ..." that names a broad type of task), then at most 40 lines of
   imperative instructions (a numbered checklist, ending with a self-check list).
