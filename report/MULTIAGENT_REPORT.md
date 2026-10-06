@@ -189,3 +189,97 @@ Trong benchmark thật không xảy ra lỗi nào (0/9), nên cơ chế retry v�
 - Thiếu circuit breaker, nên một worker liên tục lỗi vẫn bị gọi lại ở mỗi request.
 - Thiếu backoff khi gặp `RateLimitError`; hiện chỉ retry ngay.
 - Thread bị timeout vẫn chạy nốt và tốn token.
+
+## 7. So sánh thiết kế và thực tế
+
+Chỉ tiêu "dự kiến" lấy từ bảng chỉ tiêu của hướng dẫn Phần 5.3; "thực tế" lấy từ `benchmark_results.json` (9 request, mô hình thật).
+
+| Khía cạnh | Dự kiến | Thực tế | Đánh giá |
+|---|---|---|---|
+| Độ trễ P50 | < 5 s | 5,01 s | Không đạt, sát ngưỡng (truy vấn đơn 3,0 s đạt; complex workflow 39 s) |
+| Độ trễ P99 | < 15 s | 50,8 s | Không đạt: kéo dài bởi complex workflow 3 giai đoạn tuần tự (Evaluator 11–21 s, Code Agent tới 24 s) |
+| Thông lượng | > 10 req/phút | 3,85 req/phút (chạy tuần tự) | Không đạt khi chạy tuần tự; giới hạn bởi độ trễ API. Kiến trúc hỗ trợ đồng thời (10 request song song với mock: 10/10) nhưng chưa đo với API thật |
+| Tỉ lệ lỗi | < 1% | 0% (0/9) | Đạt (mẫu nhỏ) |
+| Token | 150k / 100 request | 61 175 / 9 request (khoảng 680k / 100) | Không đạt: complex workflow trung bình 16 833 token |
+| Độ chính xác số liệu | – | 6/6 câu trả lời Data Agent khớp ground truth SQL | Đạt |
+| Test | toàn bộ đạt | 32/32 (`tests_mas/`) + 32/32 (`tests/`) | Đạt. Độ phủ mã (coverage) chưa đo vì môi trường không cài `pytest-cov` |
+
+**Những gì tốt:**
+- Mẫu `reply_to` cho mỗi task vừa đơn giản vừa loại bỏ được race.
+- Tool trả lỗi dạng dữ liệu giúp LLM tự sửa.
+- Coordinator theo luật: 0 token và khoảng 3,5 ms.
+- Bảo vệ an toàn được test cụ thể (SQL injection, path traversal, không lộ khóa API).
+
+**Những gì khó:**
+- Hai lỗi chỉ lộ ra khi chạy đồng thời hoặc trên macOS (race reply, giới hạn CPU kế thừa).
+- Phương sai độ trễ do số vòng LLM↔tool không kiểm soát được (Code Agent 3–5 vòng).
+- `asyncio` không hủy được thread đang chạy.
+
+**Bài học:**
+1. Đo trước khi tối ưu: overhead hệ thống không đáng kể, chi phí nằm ở số vòng LLM và kích thước ngữ cảnh.
+2. Mọi tool chạy mã phải dùng môi trường tối thiểu (bài học giống hệt `make_backend` của lab: không kế thừa biến môi trường).
+3. Kiểm chứng số liệu bằng ground truth độc lập thay vì tin điểm của Evaluator (Evaluator chấm 91,5–96, nhưng chính nó là LLM).
+
+## 8. Khả năng mở rộng
+
+**Thêm worker (horizontal):**
+- *Hiện tại:* 1 coordinator, 3 worker, mỗi worker một instance.
+- *Giới hạn:* coordinator là điểm lỗi duy nhất; `MessageQueue` chỉ trong một tiến trình. Nhiều request cùng gọi một worker vẫn chạy song song (mỗi task một thread), nhưng phải chia sẻ một kết nối SQLite có khóa.
+- *Giải pháp:* broker ngoài (Redis Streams/RabbitMQ) thay cho `asyncio.Queue`. Giao thức đã có `task_id`/`reply_to` nên đổi transport không cần đổi logic. Nhiều instance worker cùng đọc một hàng đợi; coordinator không giữ trạng thái giữa các request ngoài cache phân loại, nên nhân bản dễ.
+- *Khả thi:* trung bình.
+
+**Tác vụ lớn hơn (vertical):**
+- *Giới hạn:* truy vấn tối đa 1000 dòng, trả cho LLM 100 dòng, kết quả tool cắt ở 6000 ký tự. Ngữ cảnh tăng theo số vòng.
+- *Giải pháp:* đẩy tính toán xuống SQL hoặc script (đã khuyến khích trong system prompt), phân trang, và chỉ truyền tóm tắt `previous_results` giữa các giai đoạn.
+- *Khả thi:* dễ.
+
+**Thông lượng:**
+- *Giới hạn:* độ trễ và rate limit của API LLM.
+- *Giải pháp:* chạy request đồng thời (đã hỗ trợ), backoff khi gặp 429, cache câu trả lời, dùng model nhỏ hơn cho Evaluator.
+- *Khả thi:* dễ.
+
+**Tự đánh giá: 6/10.** Worker và giao thức đã sẵn sàng tách transport. Nhưng hàng đợi không bền vững, coordinator chưa chịu lỗi, và chưa có backoff hay circuit breaker.
+
+## 9. Hạn chế
+
+1. **Chỉ một tiến trình, hàng đợi không bền vững:** mất thông điệp khi tiến trình dừng. *Giảm thiểu:* broker ngoài có ack.
+2. **Timeout không hủy được thread:** worker bị timeout vẫn chạy nốt và tốn token. *Giảm thiểu:* chạy worker trong tiến trình con hoặc dùng client LLM async có hỗ trợ cancel.
+3. **Sandbox chưa cách ly mức hệ điều hành:** tiến trình con vẫn đọc được tệp của người dùng (chỉ chặn import nguy hiểm, env tối thiểu, timeout, CPU). *Giảm thiểu:* Docker hoặc nsjail.
+4. **Phân loại theo từ khóa dễ sai với câu lạ:** ví dụ "report" luôn kéo theo Code Agent. LLM fallback chỉ dùng khi không khớp luật nào.
+5. **Benchmark nhỏ:** 3 kịch bản × 3 lần, chạy tuần tự, một mô hình, CSDL tổng hợp. Phương sai complex workflow rất lớn (24–52 s), nên các con số trên chỉ mang tính chỉ dấu.
+6. **Evaluator là LLM chấm LLM:** điểm 91,5–96 không phải bằng chứng chất lượng. Chỉ phần số liệu được kiểm chứng khách quan bằng SQL.
+7. **Timeout cố định** (120 s cho mọi loại task): nên cấu hình theo loại task.
+
+## 10. Kết luận và bước tiếp theo
+
+Hệ thống gồm 4 agent (Coordinator, Data, Code, Evaluator) giao tiếp qua `MessageQueue` với mẫu `reply_to`, có timeout, retry, fallback và giới hạn vòng lặp. Kết quả đo được:
+- 32/32 test ngoại tuyến đạt.
+- Trên mô hình thật: 9/9 request thành công, 6/6 câu trả lời số liệu khớp ground truth.
+- Độ trễ 3 s cho truy vấn đơn và khoảng 39 s cho luồng 3 giai đoạn.
+
+Chi phí và độ trễ nằm gần như hoàn toàn ở số vòng LLM↔tool, đặc biệt ở Evaluator và Code Agent, chứ không ở kiến trúc (overhead khoảng 3,5 ms/request). Hệ thống phù hợp với phạm vi lab; để dùng thực tế cần hàng đợi bền vững, sandbox mạnh hơn và kiểm soát chi phí.
+
+**Bước tiếp theo:**
+1. *Ngắn hạn:*
+   - Evaluator chấm một lượt không dùng tool.
+   - Truyền tóm tắt `previous_results`.
+   - Backoff khi gặp 429, và circuit breaker cho worker lỗi liên tục.
+2. *Trung hạn:*
+   - Redis Streams thay `asyncio.Queue` (giữ nguyên giao thức `task_id`/`reply_to`).
+   - Worker chạy trong tiến trình riêng để hủy được khi timeout.
+   - Benchmark đồng thời với API thật.
+3. *Dài hạn:*
+   - Sandbox Docker cho Code Agent.
+   - Dashboard theo dõi từ `logs/*.log` (JSON).
+   - Định tuyến động theo tỉ lệ thành công (hướng 6d).
+
+## Phụ lục: Thử thách mở rộng 6b - Worker fallback
+
+- **Cài đặt:** `Coordinator(fallbacks={"data_agent": ["code_agent"]})`. `execute_tasks_with_retry` thử lại task lỗi hoặc timeout `max_retries` lần; nếu vẫn lỗi thì lần lượt chuyển task sang các worker dự phòng. Kết quả thành công được đánh dấu `fallback_from`. Nếu mọi worker đều lỗi, coordinator trả kết quả `partial` hoặc `error` kèm `errors` thay vì ném ngoại lệ. Mã ở `src/coordinator.py` (`execute_tasks_with_retry`).
+- **Số liệu (mock, 0 token):**
+  - `scripts_mas/test_coordinator_standalone.py`, Test 3: worker chính treo 3 s, timeout 0,5 s, 2 lần thử đều timeout, sau đó chuyển sang `code_agent` thành công.
+  - `test_worker_exception_falls_back_to_other_worker`: worker ném ngoại lệ 2 lần (lần đầu và lần retry), sau đó fallback thành công.
+  - `test_partial_result_when_one_worker_fails`: không cấu hình fallback thì trả `partial` và giữ kết quả của worker còn lại.
+- **Cơ chế:** retry và fallback dùng lại cùng `execute_tasks`, nên mỗi lần thử vẫn đi qua `MessageQueue`, có log `retry` / `fallback` trong `logs/coordinator.log`.
+- **Hạn chế:** chưa xảy ra lỗi nào trong benchmark thật (0/9), nên fallback chưa được đo với API thật. Fallback giữa các worker khác chuyên môn chỉ hợp lý khi worker dự phòng có tool phù hợp (ví dụ Code Agent tính được số liệu bằng script nhưng không truy cập CSDL qua SQL). Thread của worker bị timeout vẫn chạy nốt.
+- **Bước tiếp theo:** chọn fallback theo tỉ lệ thành công đo được (kết hợp 6d), và thêm circuit breaker để bỏ qua worker lỗi liên tục.

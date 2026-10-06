@@ -1,0 +1,64 @@
+{
+  "task": "data-learn",
+  "condition": "skills-auto",
+  "role": "learn",
+  "error": null,
+  "timestamp": "2026-10-06T14:13:17.876054+00:00",
+  "skills_sha256": "b8b9794ee2fdb2bfaa9d35701ac7b3c48868694b548f266db85e3a62effaf0f1",
+  "seconds": 28.9,
+  "tokens": {
+    "input": 45136,
+    "output": 1802,
+    "total": 46938
+  },
+  "tool_calls": 8,
+  "subagent_calls": 0,
+  "skills_read": 0,
+  "skills_modified": false,
+  "final_message": "I cleaned the data by removing exact duplicate rows, normalizing region names by stripping whitespace and capitalizing, and treating amount -999 as missing. I parsed the dates with timezone awareness and converted them to UTC for accurate filtering. I excluded orders with missing amounts from revenue calculations. The final results are in workspace/answer.json.",
+  "score": 0.375,
+  "passed": 3,
+  "total": 8,
+  "checks": [
+    {
+      "name": "north_q1_revenue",
+      "passed": false,
+      "detail": "north_q1_revenue: wrong value (got 2314.87)"
+    },
+    {
+      "name": "north_q1_orders",
+      "passed": false,
+      "detail": "north_q1_orders: wrong value (got 9)"
+    },
+    {
+      "name": "top_region",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "missing_amount_orders",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "duplicate_rows_removed",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "rule_money_in_cents",
+      "passed": false,
+      "detail": "RULE: money values in answer.json are integer cents (1606.67 USD is written 160667)."
+    },
+    {
+      "name": "rule_meta_block",
+      "passed": false,
+      "detail": "RULE: answer.json has an object `meta` = {\"source\": <input file name>, \"rows_in\": <number of data rows in the input file, duplicates included>, \"rows_used\": <number of distinct orders with a known amount>}."
+    },
+    {
+      "name": "rule_clean_csv",
+      "passed": false,
+      "detail": "RULE: write workspace/clean.csv with the header order_id,timestamp_utc,region,amount_cents; one row per distinct order with a known amount; timestamp_utc as YYYY-MM-DDTHH:MM:SSZ (UTC); region in canonical spelling (North, South, East, West); amount in integer cents."
+    }
+  ]
+}
