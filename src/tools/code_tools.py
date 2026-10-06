@@ -26,7 +26,10 @@ def _limits(cpu_seconds: int):
     def apply():
         try:
             import resource
-            resource.setrlimit(resource.RLIMIT_CPU, (cpu_seconds, cpu_seconds))
+            # macOS: tiến trình con mang theo thời gian CPU đã dùng của tiến trình cha -> giới hạn TƯƠNG ĐỐI
+            used = resource.getrusage(resource.RUSAGE_SELF)
+            limit = int(used.ru_utime + used.ru_stime) + cpu_seconds + 1
+            resource.setrlimit(resource.RLIMIT_CPU, (limit, limit))
         except Exception:  # noqa: BLE001 - không phải nền tảng nào cũng hỗ trợ
             pass
     return apply
