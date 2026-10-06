@@ -8,7 +8,7 @@ __pycache__/
 instructor/
 
 # Hệ đa tác tử: log, tệp do Code Agent sinh, CSDL demo (tái tạo được bằng create_demo_db)
-logs/
-outputs/
-data/
+/logs/
+/outputs/
+/data/
 .coverage

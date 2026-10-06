@@ -143,12 +143,12 @@ Tất cả chạy ngoại tuyến bằng mô hình giả `ScriptedChatModel` (0 
 - `scripts_mas/test_coordinator_standalone.py`: 3/3.
 - `scripts_mas/test_tool_integration.py`: 3/3.
 
-**Kiểm chứng với API thật:** `scripts_mas/test_resilience_real.py` cho 3/3, kết quả trong `resilience_results.json` (chi tiết ở mục 6).
+**Kiểm chứng với API thật:** `scripts_mas/test_resilience_real.py` cho 3/3, kết quả trong `results/multiagent/resilience_results.json` (chi tiết ở mục 6).
 
 ## 5. Phân tích hiệu suất
 
 **Lệnh và phạm vi đo:**
-- Lệnh: `python scripts_mas/benchmark.py --iterations 3 --rounds 3 --concurrency 10`. Kết quả v3 (hiện tại) ở `benchmark_results.json`; các bản trước ở `benchmark_results_v2.json` và `benchmark_results_v1.json` (v1 chỉ 1 lượt).
+- Lệnh: `python scripts_mas/benchmark.py --iterations 3 --rounds 3 --concurrency 10`. Kết quả v3 (hiện tại) ở `benchmark_results.json`; các bản trước ở `results/multiagent/benchmark_results_v2.json` và `results/multiagent/benchmark_results_v1.json` (v1 chỉ 1 lượt).
 - Mô hình `gpt-4.1-mini`, nhiệt độ 0, 3 kịch bản × 3 lần × **3 lượt** = 27 request tuần tự, cộng 10 request đồng thời.
 - Độ chính xác của Data Agent được chấm khách quan bằng cách so với giá trị SQL trực tiếp (sai số ≤ 0,5%).
 
@@ -195,7 +195,7 @@ P50 tính trên cả 27 request là 4,78 s, nhưng một lượt đơn lẻ có 
 
 **Profile:**
 - *Mock, 0 token* (`scripts_mas/profile_system.py`): overhead coordinator + queue + log khoảng 3,5 ms/request.
-- *Mô hình thật* (`--real`, 5 request, chạy trên v2, lưu ở `report/profile_real.txt`): luồng chính chờ ở event loop 47,44/47,47 s; `coordinator.handle_request` tự tốn 0,007 s.
+- *Mô hình thật* (`--real`, 5 request, chạy trên v2, lưu ở `results/multiagent/profile_real.txt`): luồng chính chờ ở event loop 47,44/47,47 s; `coordinator.handle_request` tự tốn 0,007 s.
 - *Giới hạn:* cProfile chỉ đo luồng chính, các worker chạy trong thread pool nên không hiện trong bảng.
 - *Kết luận:* thời gian gần như hoàn toàn là chờ API LLM, nên tối ưu đúng chỗ là **giảm số lượt LLM**.
 
@@ -319,7 +319,7 @@ Hệ thống đạt 4/5 chỉ tiêu; chỉ tiêu token chưa đạt vì giới h
 - **Số liệu:**
   - *Mock:* worker treo 3 s, timeout 0,5 s, 2 lần timeout rồi fallback thành công (`test_coordinator_standalone.py` Test 3). Ngoại lệ 2 lần rồi fallback (`test_worker_exception_falls_back_to_other_worker`).
   - *API thật* (`test_resilience_real.py`, kịch bản A): worker chính nhận lỗi 401 ở cả 2 lần thử, chuyển sang `data_agent_backup` thành công trong 4,2 s, câu trả lời khớp ground truth 1100575.42.
-- **Cơ chế:** retry và fallback dùng lại `execute_tasks`, nên mọi lần thử đều đi qua `MessageQueue`, có log `retry` / `fallback` trong `logs/coordinator.log`.
+- **Cơ chế:** retry và fallback dùng lại `execute_tasks`, nên mọi lần thử đều đi qua `MessageQueue`, có log `retry` / `fallback` trong `logs/coordinator.log` (bản chụp: `results/multiagent/logs/coordinator.log`).
 - **Hạn chế:** fallback giữa các worker khác chuyên môn chỉ hợp lý khi worker dự phòng có tool phù hợp. Chưa có circuit breaker, nên worker lỗi liên tục vẫn bị thử ở mọi request.
 - **Bước tiếp theo:** chọn worker dự phòng theo tỉ lệ thành công đo được (kết hợp 6d).
 
@@ -332,9 +332,47 @@ pytest tests_mas/ --cov=src.agents --cov=src.communication --cov=src.tools \
 python scripts_mas/test_coordinator_standalone.py                      # 3/3 (0 token)
 python scripts_mas/test_tool_integration.py                            # 3/3 (0 token)
 python scripts_mas/benchmark.py --iterations 3 --rounds 3 --concurrency 10   # benchmark_results.json
-python scripts_mas/test_resilience_real.py                             # 3/3, resilience_results.json
-python scripts_mas/profile_system.py --real > report/profile_real.txt
+python scripts_mas/test_resilience_real.py                             # 3/3, results/multiagent/resilience_results.json
+python scripts_mas/profile_system.py --real > results/multiagent/profile_real.txt
 python scripts_mas/debug_system.py "Analyze Q3 2026 revenue by region and create an SVG bar chart" --evaluate
 ```
 
 Ghi chú lịch sử commit (hai chuỗi "part 2–5"): xem `report/COMMIT_HISTORY.md`.
+
+## Phụ lục C: Cấu trúc thư mục
+
+Cấu trúc của lab (`README.md` mục 3) giữ nguyên. Các phần thêm theo hướng dẫn bổ sung được đặt **bên cạnh**, không sửa `tests/`, `scripts/`, `tasks/` hay các tệp có sẵn (`RUBRIC.md` trừ 10 điểm nếu sửa).
+
+```text
+<repo>/
+├── README.md, GUIDE.md, RUBRIC.md, GLOSSARY.md, REPORT_TEMPLATE.md, pyproject.toml, .env.example, Dockerfile   (có sẵn)
+├── guides/pseudocode/            (có sẵn)
+├── tasks/                        (có sẵn, không sửa)
+├── tests/                        (có sẵn, không sửa)   pytest -> 32 passed
+├── scripts/                      (có sẵn, không sửa)   tour.py, verify_freeze.py, check_breakdown.py
+├── src/
+│   ├── lab/                      harness Deep Agents: agent.py, subagents.py, runner.py, curator.py (sinh viên cài) + tệp có sẵn
+│   ├── coordinator.py            Coordinator (Phần 2)
+│   ├── base_agent.py, logger.py, system.py
+│   ├── agents/                   base_worker.py, data_agent.py, code_agent.py, evaluator_agent.py, mock_worker.py (Phần 3)
+│   ├── communication/            message_queue.py (Phần 3)
+│   └── tools/                    base_tool.py, database_tools.py, data_tools.py, code_tools.py, evaluation_tools.py (Phần 4)
+├── tests_mas/                    test hệ đa tác tử (Phần 2-5): test_02_coordinator ... test_05_integration -> 38 passed
+├── scripts_mas/                  script hệ đa tác tử: standalone, tool integration, debug, profile, benchmark, resilience
+├── bonus_6c/                     thử thách mở rộng 6c của lab (red team curator) + test
+├── skills/auto/                  3 skill do curator sinh (đóng băng ở tag `freeze`)
+├── report/
+│   ├── REPORT.md, table.md       báo cáo lab (chấm theo RUBRIC) + bảng của lab.compare
+│   ├── MULTIAGENT_REPORT.md      báo cáo hệ đa tác tử (10 mục theo hướng dẫn Phần 6)
+│   ├── COMMIT_HISTORY.md         ánh xạ commit -> phần
+│   └── curator_runs/run1, run2/  skill của 2 lần curator bị thay thế (bằng chứng cho REPORT.md mục 6)
+├── results/
+│   ├── baseline/, subagents/, skills-auto/    6 tác vụ x run.json + trace.md (lab.compare đọc)
+│   ├── skills-auto-dev/          kết quả Phần 3.4 trước đóng băng (sao lưu theo GUIDE 4.2)
+│   ├── bonus-6c/                 dữ liệu, câu trả lời curator, skill của thí nghiệm 6c
+│   └── multiagent/               benchmark v1/v2, kiểm chứng lỗi API thật, profile, bản chụp log
+└── benchmark_results.json        benchmark v3 hiện tại (đường dẫn theo hướng dẫn Phần 5)
+```
+
+Không đưa vào git (`.gitignore`): `.env` (khóa API), `.venv/`, `logs/` (log sống; bản chụp ở `results/multiagent/logs/`), `outputs/` (tệp Code Agent sinh), `data/` (CSDL demo, tạo lại bằng `create_demo_db`), `.coverage`.
+

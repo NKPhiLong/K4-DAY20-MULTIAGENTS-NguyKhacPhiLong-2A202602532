@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Kiểm chứng xử lý lỗi với API THẬT (TỐN ÍT TOKEN): retry + fallback khi lỗi API, timeout, chặn thao tác phá hoại.
 
-    python scripts_mas/test_resilience_real.py        # -> resilience_results.json
+    python scripts_mas/test_resilience_real.py        # -> results/multiagent/resilience_results.json
 """
 import asyncio
 import json
@@ -77,8 +77,10 @@ async def main() -> int:
     passed += ok
 
     await asyncio.sleep(0)
-    (ROOT / "resilience_results.json").write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
-    print(f"\n{passed}/3 resilience scenarios passed -> resilience_results.json")
+    out = ROOT / "results" / "multiagent" / "resilience_results.json"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
+    print(f"\n{passed}/3 resilience scenarios passed -> {out.relative_to(ROOT)}")
     return 0 if passed == 3 else 1
 
 

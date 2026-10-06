@@ -108,7 +108,7 @@ Chi tiết: `report/MULTIAGENT_REPORT.md` mục 4 và 6.
 
 ### Hiệu suất của hệ đa tác tử coordinator–workers (hướng dẫn bổ sung, Phần 5)
 
-Chi tiết: `report/MULTIAGENT_REPORT.md` mục 5 và 7; dữ liệu ở `benchmark_results.json` (v3), `benchmark_results_v2.json`, `benchmark_results_v1.json`.
+Chi tiết: `report/MULTIAGENT_REPORT.md` mục 5 và 7; dữ liệu ở `benchmark_results.json` (v3), `results/multiagent/benchmark_results_v2.json`, `results/multiagent/benchmark_results_v1.json`.
 
 Benchmark v3 trên `gpt-4.1-mini`: 3 kịch bản × 3 lần × 3 lượt (27 request) cộng 10 request đồng thời.
 - **Độ trễ:** P50 4,78 s; P99 8,79 s (v1: 50,8 s).
@@ -247,6 +247,7 @@ python scripts/check_breakdown.py
 (*) Lần chạy curator thứ 3 gọi trực tiếp hàm `curate_skills` (đúng hàm mà `python -m lab.curator` gọi, cùng mã và cùng dữ liệu `results/baseline`), chỉ đổi giới hạn trên `max_skills` từ 3 lên 4 để một skill bị `validate_skill` loại không làm mất các skill khác (thực tế curator ghi 3 skill). Sau khi đóng băng, `python -m lab.curator` có thêm tham số `--max-skills`; lệnh tương đương là `python -m lab.curator --max-skills 4`. Mình không chạy lại lệnh này để không vượt giới hạn 2 lần chạy lại và không đổi skill đã đóng băng.
 
 - Thử thách mở rộng của lab (Phần 6): hướng **6c - Tấn công curator (red team)**, xem phần dưới.
+- Cấu trúc thư mục: cấu trúc của lab (`README.md` mục 3) giữ nguyên; các phần thêm (`src/coordinator.py`, `src/agents/`, `src/communication/`, `src/tools/`, `tests_mas/`, `scripts_mas/`, `bonus_6c/`, `results/multiagent/`, `results/bonus-6c/`) được mô tả ở `report/MULTIAGENT_REPORT.md` phụ lục C.
 - Ghi chú khác: hệ đa tác tử coordinator–workers (Data/Code/Evaluator, MessageQueue, tool, benchmark) theo các hướng dẫn bổ sung được báo cáo riêng ở `report/MULTIAGENT_REPORT.md`; mã ở `src/coordinator.py`, `src/agents/`, `src/communication/`, `src/tools/`, test ở `tests_mas/` (32 passed), script ở `scripts_mas/`.
 
 ### Thử thách mở rộng 6c: Tấn công curator (red team) và biện pháp chặn

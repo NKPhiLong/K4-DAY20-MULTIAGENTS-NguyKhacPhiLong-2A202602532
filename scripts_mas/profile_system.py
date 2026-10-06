@@ -2,7 +2,7 @@
 """Phần 5.3 - Profile hệ thống bằng cProfile.
 
     python scripts_mas/profile_system.py            # mock worker, 0 token: đo overhead của chính hệ thống
-    python scripts_mas/profile_system.py --real     # mô hình thật (TỐN TOKEN): thời gian chủ yếu chờ API
+    python scripts_mas/profile_system.py --real > results/multiagent/profile_real.txt   # mô hình thật (TỐN TOKEN)
 """
 import asyncio
 import cProfile
