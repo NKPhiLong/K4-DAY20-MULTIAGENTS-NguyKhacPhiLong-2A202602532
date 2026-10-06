@@ -57,6 +57,7 @@ ROLE_HINT = {
     "evaluator_agent": "Your part: evaluate how well the previous results answer the user request.",
 }
 MAX_REQUEST_CHARS = 5000
+MAX_HANDOFF_CHARS = 1500      # v2: chỉ bàn giao phần đầu kết quả của giai đoạn trước (giảm input token)
 
 
 class Coordinator(BaseAgent):
@@ -87,12 +88,12 @@ class Coordinator(BaseAgent):
             raise InvalidRequestError(f"request longer than {MAX_REQUEST_CHARS} characters")
         key = " ".join(user_input.lower().split())
         if key in self.routing_cache:
-            return {**self.routing_cache[key], "source": "cache"}
+            return {**self.routing_cache[key], "source": "cache", "llm_tokens": {"input": 0, "output": 0, "total": 0}}
 
         types = self._detect_types(key)
-        source = "rule"
+        source, llm_tokens = "rule", {"input": 0, "output": 0, "total": 0}
         if not types and self.model is not None and self.use_llm_parser:
-            types, source = self._llm_types(user_input), "llm"
+            (types, llm_tokens), source = self._llm_types(user_input), "llm"
         if not types:
             types, source = ["data_analysis"], "default"
         parsed = {
@@ -101,6 +102,7 @@ class Coordinator(BaseAgent):
             "parameters": self._extract_parameters(user_input),
             "priority": "high" if any(w in key for w in URGENT) else "normal",
             "source": source,
+            "llm_tokens": llm_tokens,
         }
         self.routing_cache[key] = parsed
         log_event(self.logger, "parse_request", request=user_input[:200], **parsed)
@@ -122,20 +124,20 @@ class Coordinator(BaseAgent):
             params["regions"] = regions
         return params
 
-    def _llm_types(self, user_input: str) -> list[str]:
+    def _llm_types(self, user_input: str) -> tuple[list[str], dict]:
         prompt = ("Classify this user request for a multi-agent system. Possible task types: data_analysis "
                   "(questions answered from a sales database), code_generation (write/run code, create files or "
                   "charts), evaluation (judge the quality of a result). Reply with ONLY JSON like "
                   '{"task_types": ["data_analysis"]}.\n\nUser request: ' + user_input)
         try:
             response = self.model.invoke(prompt)
-            self._track_usage(response)
+            usage = self._track_usage(response)
             m = re.search(r"\{.*\}", str(response.content), re.S)
             types = json.loads(m.group(0)).get("task_types", []) if m else []
-            return [t for t in TASK_TYPES if t in types]
+            return [t for t in TASK_TYPES if t in types], usage
         except Exception as exc:  # noqa: BLE001 - parser lỗi thì dùng mặc định
             log_event(self.logger, "llm_parse_failed", error=str(exc))
-            return []
+            return [], {"input": 0, "output": 0, "total": 0}
 
     # ------------------------------------------------------------------ 2. định tuyến
     def route_task(self, task_type: str, content: str | None = None) -> list[str]:
@@ -151,7 +153,9 @@ class Coordinator(BaseAgent):
         for w in workers:
             params = dict(parameters)
             if previous:
-                params["previous_results"] = previous
+                params["previous_results"] = {k: (v if not isinstance(v, str) or len(v) <= MAX_HANDOFF_CHARS
+                                                  else v[:MAX_HANDOFF_CHARS] + " ...[truncated]")
+                                              for k, v in previous.items()}
             tasks.append({"id": f"{w}-{uuid.uuid4().hex[:8]}", "worker": w, "parameters": params,
                           "content": f"User request: {user_input}\n{ROLE_HINT.get(w, '')}"})
         return tasks
@@ -265,7 +269,6 @@ class Coordinator(BaseAgent):
     # ------------------------------------------------------------------ toàn bộ luồng
     async def handle_request(self, user_input, evaluate: bool = False) -> dict:
         t0 = time.perf_counter()
-        start_tokens = dict(self.tokens)
         try:
             parsed = self.parse_request(user_input)
         except InvalidRequestError as exc:
@@ -295,7 +298,7 @@ class Coordinator(BaseAgent):
 
         out = self.aggregate_results(all_results)
         for k in out["tokens"]:
-            out["tokens"][k] += self.tokens[k] - start_tokens[k]      # token của chính coordinator (LLM parser)
+            out["tokens"][k] += parsed["llm_tokens"][k]               # token của chính coordinator (LLM parser)
         out.update({"request": text, "parsed": parsed, "trace": trace, "seconds": round(time.perf_counter() - t0, 2)})
         log_event(self.logger, "request_done", status=out["status"], seconds=out["seconds"],
                   tokens=out["tokens"]["total"], workers=[t["worker"] for t in trace])

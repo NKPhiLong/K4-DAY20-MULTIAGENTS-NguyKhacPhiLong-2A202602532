@@ -11,3 +11,4 @@ instructor/
 logs/
 outputs/
 data/
+.coverage

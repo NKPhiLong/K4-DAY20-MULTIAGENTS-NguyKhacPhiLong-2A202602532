@@ -20,7 +20,8 @@ def build_scripted_system(scripted, demo_db, out_dir):
                           AIMessage(content="Q3 revenue: 777.0"))
     code_model = scripted(tool_call("create_file", {"filename": "chart.svg", "content": "<svg></svg>"}),
                           AIMessage(content="Created chart.svg"))
-    eval_model = scripted(AIMessage(content=json.dumps({"score": 88, "feedback": "good", "issues": [], "suggestions": []})))
+    eval_model = scripted(AIMessage(content=json.dumps({"scores": {"accuracy": 90, "completeness": 90, "clarity": 80,
+                                                                   "performance": 90}, "feedback": "good"})))
     workers = [DataAgent(data_model, demo_db), CodeAgent(code_model, out_dir), EvaluatorAgent(eval_model)]
     return MultiAgentSystem(coordinator=Coordinator(None, workers)), (data_model, code_model, eval_model)
 
@@ -38,7 +39,7 @@ def test_coordinator_with_real_workers_and_tools(scripted, demo_db, tmp_path):
 def test_full_pipeline_with_evaluation(scripted, demo_db, tmp_path):
     system, _ = build_scripted_system(scripted, demo_db, tmp_path)
     result = asyncio.run(system.process("What was Q3 revenue? Create a visualization and evaluate the result."))
-    assert result["status"] == "success" and result["evaluation"]["score"] == 88
+    assert result["status"] == "success" and result["evaluation"]["score"] == 88.0     # 27+27+16+18
     assert [s["stage"] for s in result["trace"]] == [0, 1, 2]
     assert result["tokens"]["total"] == 5 * 120                  # 2 + 2 + 1 lần gọi mô hình giả
     assert result["parsed"]["parameters"]["quarter"] == 3
@@ -73,3 +74,21 @@ def test_concurrent_requests():
 
 def test_percentile():
     assert percentile([1, 2, 3, 4], 50) == 2.5 and percentile([5], 99) == 5 and percentile([], 50) is None
+
+
+def test_handoff_is_truncated(scripted, demo_db, tmp_path):
+    long_answer = "x" * 5000
+    workers = [MockWorker("data_agent", reply=long_answer), MockWorker("code_agent", "code")]
+    system = MultiAgentSystem(coordinator=Coordinator(None, workers))
+    system.process_sync("Analyze revenue and create a chart")
+    handed = workers[1].received[0][1]["previous_results"]["data_agent"]
+    assert len(handed) < 1600 and handed.endswith("[truncated]")
+
+
+def test_default_system_builds_demo_db_and_workers(scripted, tmp_path):
+    system = MultiAgentSystem(model=scripted(AIMessage(content="done")), db_path=tmp_path / "db" / "sales.db",
+                              output_dir=tmp_path / "out", auto_evaluate=True, timeout=5)
+    assert (tmp_path / "db" / "sales.db").exists() and system.coordinator.timeout == 5
+    assert set(system.coordinator.workers) == {"data_agent", "code_agent", "evaluator_agent"}
+    assert system.message_queue is system.coordinator.task_queue and system.active_task_count() == 0
+    assert system.metrics()["requests"] == 0 and system.metrics()["latency_p50"] is None

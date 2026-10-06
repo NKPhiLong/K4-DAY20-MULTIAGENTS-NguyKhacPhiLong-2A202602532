@@ -1,34 +1,63 @@
 {
-  "timestamp": "2026-10-06T13:57:58.189722+00:00",
+  "timestamp": "2026-10-06T14:53:54.719718+00:00",
   "model": "openai:gpt-4.1-mini",
+  "version": "v2 (single-pass evaluator, SVG chart tool, truncated handoff)",
   "overall": {
-    "requests": 9,
-    "latency_p50": 5.01,
-    "latency_p99": 50.758,
-    "latency_avg": 15.598,
+    "requests": 27,
+    "latency_p50": 4.7,
+    "latency_p99": 21.906,
+    "latency_avg": 7.99,
     "error_rate": 0.0,
-    "tokens_total": 61175,
-    "throughput_per_min": 3.85,
-    "wall_seconds": 140.4,
-    "requests_per_min": 3.85
+    "tokens_total": 105332,
+    "tokens_per_request": 3901,
+    "sequential_requests_per_min": 7.51
+  },
+  "rounds": [
+    {
+      "round": 1,
+      "latency_p50": 5.47,
+      "latency_p99": 21.468,
+      "avg_latency": 8.03,
+      "tokens": 35658,
+      "success": 9,
+      "requests": 9
+    },
+    {
+      "round": 2,
+      "latency_p50": 4.7,
+      "latency_p99": 19.251,
+      "avg_latency": 7.65,
+      "tokens": 33007,
+      "success": 9,
+      "requests": 9
+    },
+    {
+      "round": 3,
+      "latency_p50": 4.56,
+      "latency_p99": 21.26,
+      "avg_latency": 8.3,
+      "tokens": 36667,
+      "success": 9,
+      "requests": 9
+    }
+  ],
+  "concurrency": {
+    "requests": 10,
+    "wall_seconds": 3.52,
+    "requests_per_min": 170.24,
+    "success": 10,
+    "latency_p50": 2.91,
+    "latency_p99": 3.476,
+    "avg_tokens": 1290
   },
   "cases": [
     {
       "name": "Simple data query",
       "request": "What is the total revenue in 2026?",
-      "iterations": 3,
-      "min": 2.68,
-      "max": 3.4,
-      "avg": 3.04,
-      "median": 3.05,
-      "p99": 3.393,
-      "success_rate": 1.0,
-      "avg_tokens": 1266,
-      "accuracy": 1.0,
       "ground_truth": 1100575.42,
       "runs": [
         {
-          "latency": 3.4,
+          "latency": 2.79,
           "status": "success",
           "tokens": 1266,
           "correct": true,
@@ -37,14 +66,15 @@
             [
               "data_agent",
               "success",
-              3.4,
+              2.79,
               1266
             ]
           ],
-          "errors": []
+          "errors": [],
+          "round": 1
         },
         {
-          "latency": 3.05,
+          "latency": 2.46,
           "status": "success",
           "tokens": 1266,
           "correct": true,
@@ -53,14 +83,15 @@
             [
               "data_agent",
               "success",
-              3.04,
+              2.46,
               1266
             ]
           ],
-          "errors": []
+          "errors": [],
+          "round": 1
         },
         {
-          "latency": 2.68,
+          "latency": 2.49,
           "status": "success",
           "tokens": 1266,
           "correct": true,
@@ -69,177 +100,577 @@
             [
               "data_agent",
               "success",
-              2.68,
+              2.49,
               1266
             ]
           ],
-          "errors": []
+          "errors": [],
+          "round": 1
+        },
+        {
+          "latency": 2.32,
+          "status": "success",
+          "tokens": 1266,
+          "correct": true,
+          "eval_score": null,
+          "workers": [
+            [
+              "data_agent",
+              "success",
+              2.31,
+              1266
+            ]
+          ],
+          "errors": [],
+          "round": 2
+        },
+        {
+          "latency": 2.42,
+          "status": "success",
+          "tokens": 1266,
+          "correct": true,
+          "eval_score": null,
+          "workers": [
+            [
+              "data_agent",
+              "success",
+              2.42,
+              1266
+            ]
+          ],
+          "errors": [],
+          "round": 2
+        },
+        {
+          "latency": 2.47,
+          "status": "success",
+          "tokens": 1266,
+          "correct": true,
+          "eval_score": null,
+          "workers": [
+            [
+              "data_agent",
+              "success",
+              2.46,
+              1266
+            ]
+          ],
+          "errors": [],
+          "round": 2
+        },
+        {
+          "latency": 2.47,
+          "status": "success",
+          "tokens": 1266,
+          "correct": true,
+          "eval_score": null,
+          "workers": [
+            [
+              "data_agent",
+              "success",
+              2.47,
+              1266
+            ]
+          ],
+          "errors": [],
+          "round": 3
+        },
+        {
+          "latency": 2.25,
+          "status": "success",
+          "tokens": 1266,
+          "correct": true,
+          "eval_score": null,
+          "workers": [
+            [
+              "data_agent",
+              "success",
+              2.25,
+              1266
+            ]
+          ],
+          "errors": [],
+          "round": 3
+        },
+        {
+          "latency": 2.4,
+          "status": "success",
+          "tokens": 1266,
+          "correct": true,
+          "eval_score": null,
+          "workers": [
+            [
+              "data_agent",
+              "success",
+              2.4,
+              1266
+            ]
+          ],
+          "errors": [],
+          "round": 3
         }
-      ]
+      ],
+      "n": 9,
+      "min": 2.25,
+      "max": 2.79,
+      "avg": 2.45,
+      "median": 2.46,
+      "p99": 2.766,
+      "stdev": 0.15,
+      "success_rate": 1.0,
+      "avg_tokens": 1266,
+      "accuracy": 1.0,
+      "avg_eval_score": null
     },
     {
       "name": "Code generation",
       "request": "Write a Python script that reads a CSV file and prints the number of rows, then run it on a small sample CSV you create.",
-      "iterations": 3,
-      "min": 4.14,
-      "max": 5.21,
-      "avg": 4.79,
-      "median": 5.01,
-      "p99": 5.206,
-      "success_rate": 1.0,
-      "avg_tokens": 2292,
-      "accuracy": null,
       "ground_truth": null,
       "runs": [
         {
-          "latency": 5.01,
+          "latency": 5.89,
           "status": "success",
-          "tokens": 2465,
+          "tokens": 2477,
           "correct": null,
           "eval_score": null,
           "workers": [
             [
               "code_agent",
               "success",
-              5.01,
-              2465
+              5.89,
+              2477
             ]
           ],
-          "errors": []
+          "errors": [],
+          "round": 1
         },
         {
-          "latency": 5.21,
+          "latency": 5.47,
           "status": "success",
-          "tokens": 2464,
+          "tokens": 2806,
           "correct": null,
           "eval_score": null,
           "workers": [
             [
               "code_agent",
               "success",
-              5.21,
-              2464
+              5.47,
+              2806
             ]
           ],
-          "errors": []
+          "errors": [],
+          "round": 1
         },
         {
-          "latency": 4.14,
+          "latency": 5.45,
           "status": "success",
-          "tokens": 1948,
+          "tokens": 2829,
           "correct": null,
           "eval_score": null,
           "workers": [
             [
               "code_agent",
               "success",
-              4.14,
-              1948
+              5.45,
+              2829
             ]
           ],
-          "errors": []
+          "errors": [],
+          "round": 1
+        },
+        {
+          "latency": 4.37,
+          "status": "success",
+          "tokens": 2275,
+          "correct": null,
+          "eval_score": null,
+          "workers": [
+            [
+              "code_agent",
+              "success",
+              4.36,
+              2275
+            ]
+          ],
+          "errors": [],
+          "round": 2
+        },
+        {
+          "latency": 5.03,
+          "status": "success",
+          "tokens": 2459,
+          "correct": null,
+          "eval_score": null,
+          "workers": [
+            [
+              "code_agent",
+              "success",
+              5.02,
+              2459
+            ]
+          ],
+          "errors": [],
+          "round": 2
+        },
+        {
+          "latency": 4.7,
+          "status": "success",
+          "tokens": 2828,
+          "correct": null,
+          "eval_score": null,
+          "workers": [
+            [
+              "code_agent",
+              "success",
+              4.7,
+              2828
+            ]
+          ],
+          "errors": [],
+          "round": 2
+        },
+        {
+          "latency": 4.47,
+          "status": "success",
+          "tokens": 2248,
+          "correct": null,
+          "eval_score": null,
+          "workers": [
+            [
+              "code_agent",
+              "success",
+              4.47,
+              2248
+            ]
+          ],
+          "errors": [],
+          "round": 3
+        },
+        {
+          "latency": 4.56,
+          "status": "success",
+          "tokens": 2801,
+          "correct": null,
+          "eval_score": null,
+          "workers": [
+            [
+              "code_agent",
+              "success",
+              4.55,
+              2801
+            ]
+          ],
+          "errors": [],
+          "round": 3
+        },
+        {
+          "latency": 4.68,
+          "status": "success",
+          "tokens": 2826,
+          "correct": null,
+          "eval_score": null,
+          "workers": [
+            [
+              "code_agent",
+              "success",
+              4.68,
+              2826
+            ]
+          ],
+          "errors": [],
+          "round": 3
         }
-      ]
+      ],
+      "n": 9,
+      "min": 4.37,
+      "max": 5.89,
+      "avg": 4.96,
+      "median": 4.7,
+      "p99": 5.856,
+      "stdev": 0.53,
+      "success_rate": 1.0,
+      "avg_tokens": 2617,
+      "accuracy": null,
+      "avg_eval_score": null
     },
     {
       "name": "Complex workflow",
       "request": "Analyze Q3 2026 revenue by region, create an SVG bar chart of it and evaluate the result.",
-      "iterations": 3,
-      "min": 24.22,
-      "max": 51.6,
-      "avg": 38.97,
-      "median": 41.08,
-      "p99": 51.39,
-      "success_rate": 1.0,
-      "avg_tokens": 16833,
-      "accuracy": 1.0,
       "ground_truth": 305882.74,
       "runs": [
         {
-          "latency": 41.08,
+          "latency": 15.24,
           "status": "success",
-          "tokens": 15219,
+          "tokens": 7294,
           "correct": true,
-          "eval_score": 96,
+          "eval_score": 92.5,
           "workers": [
             [
               "data_agent",
               "success",
-              9.12,
-              1779
+              7.29,
+              1874
             ],
             [
               "code_agent",
               "success",
-              10.61,
-              5514
+              5.91,
+              4364
             ],
             [
               "evaluator_agent",
               "success",
-              21.33,
-              7926
+              2.03,
+              1056
             ]
           ],
-          "errors": []
+          "errors": [],
+          "round": 1
         },
         {
-          "latency": 51.6,
+          "latency": 22.01,
           "status": "success",
-          "tokens": 25235,
-          "correct": true,
-          "eval_score": 96,
-          "workers": [
-            [
-              "data_agent",
-              "success",
-              7.1,
-              1868
-            ],
-            [
-              "code_agent",
-              "success",
-              24.41,
-              12989
-            ],
-            [
-              "evaluator_agent",
-              "success",
-              20.08,
-              10378
-            ]
-          ],
-          "errors": []
-        },
-        {
-          "latency": 24.22,
-          "status": "success",
-          "tokens": 10046,
+          "tokens": 11413,
           "correct": true,
           "eval_score": 91.5,
           "workers": [
             [
               "data_agent",
               "success",
-              3.37,
+              9.48,
+              1893
+            ],
+            [
+              "code_agent",
+              "success",
+              10.58,
+              8430
+            ],
+            [
+              "evaluator_agent",
+              "success",
+              1.94,
+              1090
+            ]
+          ],
+          "errors": [],
+          "round": 1
+        },
+        {
+          "latency": 10.47,
+          "status": "success",
+          "tokens": 5041,
+          "correct": true,
+          "eval_score": 99.0,
+          "workers": [
+            [
+              "data_agent",
+              "success",
+              2.82,
               1411
             ],
             [
               "code_agent",
               "success",
-              9.23,
-              4236
+              5.97,
+              3044
             ],
             [
               "evaluator_agent",
               "success",
-              11.61,
-              4399
+              1.68,
+              586
             ]
           ],
-          "errors": []
+          "errors": [],
+          "round": 1
+        },
+        {
+          "latency": 16.5,
+          "status": "success",
+          "tokens": 7603,
+          "correct": true,
+          "eval_score": 96.5,
+          "workers": [
+            [
+              "data_agent",
+              "success",
+              7.26,
+              1869
+            ],
+            [
+              "code_agent",
+              "success",
+              7.19,
+              4594
+            ],
+            [
+              "evaluator_agent",
+              "success",
+              2.04,
+              1140
+            ]
+          ],
+          "errors": [],
+          "round": 2
+        },
+        {
+          "latency": 11.54,
+          "status": "success",
+          "tokens": 5244,
+          "correct": true,
+          "eval_score": 99.0,
+          "workers": [
+            [
+              "data_agent",
+              "success",
+              2.73,
+              1411
+            ],
+            [
+              "code_agent",
+              "success",
+              7.21,
+              3229
+            ],
+            [
+              "evaluator_agent",
+              "success",
+              1.59,
+              604
+            ]
+          ],
+          "errors": [],
+          "round": 2
+        },
+        {
+          "latency": 19.49,
+          "status": "success",
+          "tokens": 8800,
+          "correct": true,
+          "eval_score": 99.0,
+          "workers": [
+            [
+              "data_agent",
+              "success",
+              5.61,
+              1768
+            ],
+            [
+              "code_agent",
+              "success",
+              12.17,
+              5989
+            ],
+            [
+              "evaluator_agent",
+              "success",
+              1.7,
+              1043
+            ]
+          ],
+          "errors": [],
+          "round": 2
+        },
+        {
+          "latency": 15.05,
+          "status": "success",
+          "tokens": 7365,
+          "correct": true,
+          "eval_score": 99.0,
+          "workers": [
+            [
+              "data_agent",
+              "success",
+              6.28,
+              1830
+            ],
+            [
+              "code_agent",
+              "success",
+              7.12,
+              4477
+            ],
+            [
+              "evaluator_agent",
+              "success",
+              1.65,
+              1058
+            ]
+          ],
+          "errors": [],
+          "round": 3
+        },
+        {
+          "latency": 17.24,
+          "status": "success",
+          "tokens": 7497,
+          "correct": true,
+          "eval_score": 94.0,
+          "workers": [
+            [
+              "data_agent",
+              "success",
+              6.91,
+              1851
+            ],
+            [
+              "code_agent",
+              "success",
+              8.15,
+              4555
+            ],
+            [
+              "evaluator_agent",
+              "success",
+              2.18,
+              1091
+            ]
+          ],
+          "errors": [],
+          "round": 3
+        },
+        {
+          "latency": 21.61,
+          "status": "success",
+          "tokens": 10132,
+          "correct": true,
+          "eval_score": 91.5,
+          "workers": [
+            [
+              "data_agent",
+              "success",
+              7.61,
+              1873
+            ],
+            [
+              "code_agent",
+              "success",
+              12.07,
+              7113
+            ],
+            [
+              "evaluator_agent",
+              "success",
+              1.93,
+              1146
+            ]
+          ],
+          "errors": [],
+          "round": 3
         }
-      ]
+      ],
+      "n": 9,
+      "min": 10.47,
+      "max": 22.01,
+      "avg": 16.57,
+      "median": 16.5,
+      "p99": 21.978,
+      "stdev": 4.04,
+      "success_rate": 1.0,
+      "avg_tokens": 7821,
+      "accuracy": 1.0,
+      "avg_eval_score": 95.8
     }
   ]
 }

@@ -158,3 +158,58 @@ class RunScriptTool(BaseTool):
         path = safe_path(self.base_path, input_dict["filename"])
         args = [str(a) for a in input_dict.get("args") or []]
         return _run_python(["-I", str(path), *args], self.base_path, self.timeout, self.max_output_len)
+
+
+class SVGChartTool(BaseTool):
+    """Vẽ biểu đồ cột SVG từ nhãn và giá trị (tất định, không chạy mã của LLM).
+
+    Thêm ở v2: benchmark v1 cho thấy Code Agent tốn 3-5 vòng LLM để tự viết, chạy rồi sửa script vẽ SVG.
+    """
+
+    def __init__(self, base_path, width: int = 640, height: int = 360):
+        self.base_path = Path(base_path)
+        self.width, self.height = width, height
+        super().__init__(
+            name="make_bar_chart_svg",
+            description=("Create an SVG bar chart file from labels and numeric values in ONE call "
+                         "(preferred over writing chart code). Returns the file path."),
+            parameters={"type": "object",
+                        "properties": {"filename": {"type": "string", "description": "relative, ends with .svg"},
+                                       "title": {"type": "string"},
+                                       "labels": {"type": "array", "items": {"type": "string"}},
+                                       "values": {"type": "array", "items": {"type": "number"}}},
+                        "required": ["filename", "labels", "values"]},
+        )
+
+    def validate_input(self, input_dict):
+        super().validate_input(input_dict)
+        if not str(input_dict["filename"]).endswith(".svg"):
+            raise ValueError("filename must end with .svg")
+        safe_path(self.base_path, input_dict["filename"])
+        labels, values = input_dict["labels"], input_dict["values"]
+        if not labels or len(labels) != len(values):
+            raise ValueError("labels and values must be non-empty and of equal length")
+        if any(float(v) < 0 for v in values):
+            raise ValueError("values must be >= 0")
+        return True
+
+    def _run(self, input_dict):
+        from html import escape
+        labels = [str(x) for x in input_dict["labels"]]
+        values = [float(v) for v in input_dict["values"]]
+        w, h, pad, top = self.width, self.height, 50, max(values) or 1
+        bw = (w - 2 * pad) / len(values)
+        parts = [f'<svg xmlns="http://www.w3.org/2000/svg" width="{w}" height="{h}" font-family="sans-serif">',
+                 f'<text x="{w / 2}" y="24" text-anchor="middle" font-size="16">{escape(str(input_dict.get("title", "")))}</text>',
+                 f'<line x1="{pad}" y1="{h - pad}" x2="{w - pad}" y2="{h - pad}" stroke="#333"/>']
+        for i, (label, v) in enumerate(zip(labels, values)):
+            bh = v / top * (h - 2 * pad - 20)
+            x = pad + i * bw + bw * 0.15
+            parts += [f'<rect x="{x:.1f}" y="{h - pad - bh:.1f}" width="{bw * 0.7:.1f}" height="{bh:.1f}" fill="#4a78c2"/>',
+                      f'<text x="{x + bw * 0.35:.1f}" y="{h - pad - bh - 6:.1f}" text-anchor="middle" font-size="11">{v:,.2f}</text>',
+                      f'<text x="{x + bw * 0.35:.1f}" y="{h - pad + 16:.1f}" text-anchor="middle" font-size="12">{escape(label)}</text>']
+        parts.append("</svg>")
+        path = safe_path(self.base_path, input_dict["filename"])
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("\n".join(parts), encoding="utf-8")
+        return {"path": str(path.relative_to(self.base_path.resolve())), "bars": len(values)}

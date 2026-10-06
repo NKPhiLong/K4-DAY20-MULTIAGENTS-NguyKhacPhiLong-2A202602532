@@ -9,10 +9,10 @@ from src.tools.database_tools import QueryDatabaseTool
 class DataAgent(BaseWorker):
     result_type = "data"
 
-    def __init__(self, model, db_connection, data_dir=None, **kwargs):
+    def __init__(self, model, db_connection, data_dir=None, name: str = "data_agent", **kwargs):
         tools = [QueryDatabaseTool(db_connection), AggregationTool(), CSVParserTool(data_dir or Path(db_connection).parent),
                  DataValidationTool()]
-        super().__init__("data_agent", model, tools, **kwargs)
+        super().__init__(name, model, tools, **kwargs)
         self.system_prompt = (
             "You are a Data Analysis Specialist working for a coordinator agent.\n"
             "1. Answer the data question with the query_database tool. Prefer SQL aggregates (SUM, AVG, COUNT, "

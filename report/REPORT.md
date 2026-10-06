@@ -10,6 +10,24 @@
 - Số lần chạy tác vụ đã dùng / ngân sách: 21 / 30 (baseline 6, subagents 6, skills-auto 3 ở Phần 3.4 + 6 sau đóng băng; không lần nào phải chạy lại vì lỗi). Ngoài ra curator gọi mô hình 3 lần.
 - Commit của tag `freeze`: `660c53e` (commit `hypotheses` là `a28f8db`); `python scripts/verify_freeze.py` → `checked 6 runs of skill conditions: OK`
 
+### Kiến trúc hệ đa tác tử coordinator–workers (hướng dẫn bổ sung, Phần 1)
+
+Chi tiết đầy đủ (sơ đồ, giao thức, guardrail): `report/MULTIAGENT_REPORT.md` mục 1–2.
+
+1. **Có bao nhiêu agent, mỗi agent làm gì?** 4 agent:
+   - Coordinator: phân tích yêu cầu, định tuyến, chờ có timeout, retry/fallback, gộp kết quả.
+   - Data Agent: SQL chỉ-đọc trên CSDL `sales`, có tool tổng hợp và kiểm tra chất lượng dữ liệu.
+   - Code Agent: chạy Python trong tiến trình con có giới hạn, tạo và sửa tệp, vẽ biểu đồ SVG.
+   - Evaluator Agent: chấm 4 tiêu chí có trọng số 30/30/20/20, phản hồi dạng JSON.
+2. **Coordinator giao tiếp với worker bằng cách nào?** Qua `MessageQueue` (asyncio, mỗi agent một hộp thư):
+   - Coordinator gửi thông điệp `task` kèm `task_id` và `reply_to`, là hộp thư trả lời riêng của task (mẫu RPC).
+   - Worker chạy vòng lặp LLM↔tool rồi gửi thông điệp `result` về `reply_to`.
+   - Coordinator chờ có timeout; nếu lỗi thì retry hoặc chuyển sang worker dự phòng.
+   - Kết quả giai đoạn trước (data → code → evaluator) được bàn giao qua `parameters.previous_results`.
+3. **Tool nào được chia sẻ?**
+   - Tool chuyên môn **không** chia sẻ (đặc quyền tối thiểu): Data Agent không chạy được mã, Code Agent không truy vấn CSDL.
+   - Hạ tầng thì dùng chung: lớp `BaseTool` (validate → run → log; lỗi trả về dạng dữ liệu để LLM tự sửa), `safe_path` chống path traversal, logger JSON (`logs/*.log`), `MessageQueue`, bộ đếm token, và cùng một mô hình LLM.
+
 ## 2. Giả thuyết (commit TRƯỚC tag `freeze`, Phần 4.0)
 
 - H1 (subagents so với baseline): subagents KHÔNG cao hơn baseline trên tác vụ đánh giá (dự đoán điểm trung bình thấp hơn hoặc bằng, không cải thiện check `rule_`). Căn cứ: trên tác vụ học, subagents đạt 8/18 check kỹ thuật so với 13/18 của baseline. Tác tử chính không gọi subagent tự định nghĩa nào; nó giao toàn bộ việc cho `general-purpose` ở data-learn và logs-learn rồi dùng nguyên báo cáo mà không kiểm tra (data-learn 0/8, trong khi baseline đúng cả 5 số). Cô lập ngữ cảnh làm mất thông tin, và Anthropic ghi nhận hệ đa tác tử tốn khoảng 15 lần token, hiệu quả chủ yếu ở việc song song hóa, không phải ở tác vụ tuần tự nhỏ như ở đây.
@@ -64,6 +82,15 @@ Nhận xét:
 - **Thông tin truyền đi:** lời giao việc ở data-learn **đủ thông tin của đề**: chép đủ 5 khóa, quy tắc "missing amount", và liệt kê `workspace/sales.csv`, `workspace/answer.json`, `workspace/README.md (for column descriptions)`. Không thể truyền quy ước Acme vì tác tử chính cũng không biết chúng. Vấn đề nằm ở chiều về: tác tử chính **không kiểm tra** báo cáo trả về, dù `SUBAGENTS_NOTE` yêu cầu "Check what a subagent returns": nó chép nguyên 5 con số của subagent (`north_q1_revenue` 3165.49, `top_region` "east" chữ thường, ...) vào câu trả lời cuối, và cả 5 đều sai (0/8, so với baseline 5/5 check kỹ thuật). logs-learn: subagent chỉ ghi 2 mục (detail "got 2"), so với 19 mục của baseline.
 - **Token và thời gian:** token trung bình trên tác vụ học là 34 456 (subagents) so với 40 318 (baseline). Số token không tăng vì mỗi lần giao việc chỉ có một subagent và tác tử chính hầu như không làm gì thêm. Tuy vậy data-learn chậm gần gấp đôi (49,8 s so với 26,6 s) với số token tương đương (46 351 so với 45 089), điểm tụt từ 0,625 xuống 0. Đa tác tử ở đây không đáng chi phí: cùng hoặc nhiều token hơn mà chất lượng thấp hơn.
 
+### Kết quả test của hệ đa tác tử coordinator–workers (hướng dẫn bổ sung, Phần 5)
+
+Chi tiết: `report/MULTIAGENT_REPORT.md` mục 4 và 6.
+- **Test:** unit + integration + e2e `pytest tests_mas/` cho 37/37 (0 token); độ phủ mã 95%. Harness của lab `pytest` cho 32/32, độ phủ 90%.
+- **Kiểm chứng xử lý lỗi với API thật** (`scripts_mas/test_resilience_real.py`, 3/3):
+  - Lỗi 401 ở worker chính → retry → chuyển sang worker dự phòng, đúng số liệu.
+  - Timeout 0,5 s → trả `timeout`, coordinator không sập.
+  - Yêu cầu xóa dữ liệu bị từ chối, CSDL còn nguyên 600 dòng.
+
 ## 6. Self-evolving: skill do curator sinh (Phần 3)
 
 - **Số lần chạy curator: 3** (1 lần đầu + 2 lần chạy lại, mức tối đa cho phép). Mỗi lần chạy lại thì xóa toàn bộ skill cũ khỏi `skills/auto/`; bản cũ lưu ở `report/curator_runs/run1/` và `run2/` để đối chiếu. Không sửa tay nội dung skill nào.
@@ -78,6 +105,19 @@ Nhận xét:
 | `log-file-parsing-and-normalization` | Tổng quát cho tác vụ parse log | Đúng quy ước tên service (`-` → `_`, chữ thường) và thứ tự sắp xếp; **thiếu giá trị** `schema_version: 2`, `generated_by: "log-triage"`. Bước 7 lặp lại bước 1. Không nói rõ "viết script" dù đó là lỗi chính của vết | 25 dòng; description đúng tình huống; `skills_read=0` |
 
 **`skills_read = 0` trên cả 3 tác vụ học ở Phần 3.4** (`results/skills-auto-dev/`). Mình kiểm tra harness bằng mô hình giả: 3 skill có trong system prompt (mục "Available Skills" kèm đường dẫn `/skills/<name>/SKILL.md`), cùng `SKILLS_NOTE` ("As your FIRST action, read the SKILL.md ..."); `skills_sha256` khớp `hash_skills(skills/auto)`. Vậy lỗi không nằm ở harness hay `description` mà ở hành vi của `gpt-4.1-mini`: bước đầu của cả 3 vết là `read_file /workspace/README.md`. Điểm 3.4: code 7/10, data 5/8, logs 6/9 (cùng các check `rule_` trượt như baseline). logs-learn tăng từ 1/9 lên 6/9 **không nhờ skill**: lần này mô hình tự viết script Python (1 lệnh `execute`). Đây là ước lượng đầu tiên về nhiễu giữa hai lần chạy cùng mô hình.
+
+### Hiệu suất của hệ đa tác tử coordinator–workers (hướng dẫn bổ sung, Phần 5)
+
+Chi tiết: `report/MULTIAGENT_REPORT.md` mục 5 và 7; dữ liệu ở `benchmark_results.json` (v2) và `benchmark_results_v1.json`.
+
+Benchmark v2 trên `gpt-4.1-mini`: 3 kịch bản × 3 lần × 3 lượt (27 request) cộng 10 request đồng thời.
+- **Độ trễ:** P50 4,70 s; P99 21,9 s (v1: 50,8 s).
+- **Thông lượng:** 7,51 req/phút khi chạy tuần tự, 170 req/phút khi chạy đồng thời.
+- **Lỗi:** 0%.
+- **Token:** 3 901 mỗi request (v1: khoảng 6 800).
+- **Độ chính xác:** 18/18 câu trả lời số liệu khớp ground truth SQL.
+- **Nút cổ chai và tối ưu:** v1 có nút cổ chai ở Evaluator (11–21 s); v2 chấm một lượt nên chỉ còn 1,6–2,2 s.
+- **Chưa đạt:** P99 < 15 s cho luồng 3 giai đoạn.
 
 ## 7. Kết quả so sánh (Phần 4.3, 4.4)
 
@@ -193,7 +233,7 @@ python -m lab.runner --condition baseline --tasks learn
 python -m lab.runner --condition subagents --tasks learn
 python -m lab.curator                            # lần 1 -> report/curator_runs/run1/
 python -m lab.curator                            # lần 2 (prompt sửa) -> report/curator_runs/run2/
-python -c "from lab.curator import curate_skills; curate_skills(max_skills=4)"   # lần 3 = skills/auto/
+python -c "from lab.curator import curate_skills; curate_skills(max_skills=4)"   # lần 3 = skills/auto/ (*)
 python -m lab.runner --condition skills-auto --tasks learn
 mv results/skills-auto results/skills-auto-dev
 git commit -m "hypotheses: ..." && git commit --allow-empty -m "freeze skills" && git tag freeze
@@ -204,6 +244,8 @@ python scripts/verify_freeze.py                  # OK
 python -m lab.compare > report/table.md
 python scripts/check_breakdown.py
 ```
+
+(*) Lần chạy curator thứ 3 gọi trực tiếp hàm `curate_skills` (đúng hàm mà `python -m lab.curator` gọi, cùng mã và cùng dữ liệu `results/baseline`), chỉ đổi giới hạn trên `max_skills` từ 3 lên 4 để một skill bị `validate_skill` loại không làm mất các skill khác (thực tế curator ghi 3 skill). Sau khi đóng băng, `python -m lab.curator` có thêm tham số `--max-skills`; lệnh tương đương là `python -m lab.curator --max-skills 4`. Mình không chạy lại lệnh này để không vượt giới hạn 2 lần chạy lại và không đổi skill đã đóng băng.
 
 - Thử thách mở rộng của lab (Phần 6): không thực hiện. Hướng 6e (lặp để đo nhiễu) cần thêm 18 lần chạy, vượt ngân sách còn lại (9/30); mục 8.6 dùng cặp Phần 3.4 / sau đóng băng làm ước lượng nhiễu thay thế.
 - Ghi chú khác: hệ đa tác tử coordinator–workers (Data/Code/Evaluator, MessageQueue, tool, benchmark) theo các hướng dẫn bổ sung được báo cáo riêng ở `report/MULTIAGENT_REPORT.md`; mã ở `src/coordinator.py`, `src/agents/`, `src/communication/`, `src/tools/`, test ở `tests_mas/` (32 passed), script ở `scripts_mas/`.

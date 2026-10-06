@@ -97,7 +97,10 @@ Các worker trong cùng một giai đoạn chạy song song (`asyncio.gather`). 
 | 6 | **SQL ba lớp bảo vệ**: từ khóa (`\b`), một câu lệnh, mở SQLite `mode=ro`; bọc `SELECT * FROM (q) LIMIT n` | Lớp read-only vẫn chặn được thay đổi dữ liệu nếu lớp từ khóa bị vượt qua; regex `\b` tránh chặn nhầm cột như `updated_at` (cách `in` của hướng dẫn mẫu sẽ chặn nhầm) | Chỉ hỗ trợ SQLite |
 | 7 | **Sandbox mã bằng tiến trình con** (`python -I`), env tối thiểu (không kế thừa khóa API), cwd = `outputs/`, timeout + giới hạn CPU, chặn import nguy hiểm | `exec()` trong tiến trình như hướng dẫn mẫu dùng chung bộ nhớ và môi trường (lộ `OPENAI_API_KEY`), không timeout được | Không giữ biến giữa các lần gọi; chưa phải cách ly mức hệ điều hành (nên dùng Docker) |
 | 8 | **Một kết nối SQLite được cache** + `threading.Lock` | Không mở lại kết nối mỗi truy vấn; worker chạy trong thread pool | Truy vấn đồng thời bị tuần tự hóa |
-| 9 | **Chỉ dùng thư viện chuẩn** (không pandas/matplotlib), biểu đồ bằng SVG | Không đổi `pyproject.toml` của lab | Code Agent phải tự viết SVG |
+| 9 | **Chỉ dùng thư viện chuẩn** (không pandas/matplotlib), biểu đồ bằng SVG | Không đổi `pyproject.toml` của lab | Code Agent phải tự viết SVG (v1); v2 thêm tool vẽ sẵn |
+| 10 | **v2: Evaluator một lượt** (`single_pass=True`): 1 lần gọi LLM trả điểm từng tiêu chí; `ValidationTool` và `ScoringTool` chạy tất định trong code | Benchmark v1: Evaluator agentic là nút cổ chai (11–21 s, 4–10k token) | LLM không còn tự chọn tool; chế độ agentic vẫn giữ (`single_pass=False`) |
+| 11 | **v2: tool `make_bar_chart_svg`** cho Code Agent | v1: Code Agent mất 3–5 vòng viết, chạy, sửa script vẽ SVG (tới 24 s, 13k token) | Thêm một tool; LLM vẫn có thể bỏ qua (xem mục 5) |
+| 12 | **v2: cắt dữ liệu bàn giao** ở 1500 ký tự mỗi kết quả | Giảm input token của các giai đoạn sau | Giai đoạn sau có thể thiếu chi tiết nếu kết quả trước rất dài |
 
 **Khó khăn đã gặp và cách xử lý (đều phát hiện bằng test):**
 
@@ -105,181 +108,228 @@ Các worker trong cùng một giai đoạn chạy song song (`asyncio.gather`). 
 2. *`asyncio.Queue` gắn với event loop đầu tiên:* gọi `asyncio.run` nhiều lần làm lỗi. Đã thêm `_ensure_loop()` để tạo lại hộp thư (giữ thông điệp đang chờ) khi loop đổi.
 3. *Giới hạn CPU sai trên macOS:* tiến trình con kế thừa thời gian CPU của tiến trình cha, nên giới hạn 3 s giết vòng lặp sau 0,15 s. Một script hợp lệ cũng có thể bị giết oan. Đã chuyển sang giới hạn tương đối (CPU đã dùng + 3 s), đo lại thì bị dừng sau 2,4 s.
 4. *Tiến trình con bị giới hạn CPU giết không có trường `error`:* đã chuẩn hóa thông báo lỗi.
+5. *Đếm token và `tools_used` sai khi chạy đồng thời* (phát hiện ở benchmark v2): `BaseWorker` lấy hiệu của bộ đếm dùng chung của instance, nên 10 request song song trên cùng Data Agent báo trung bình 9 749 token mỗi request (thực tế khoảng 1 270) và mỗi request liệt kê 10 lệnh `query_database`. Đã sửa: đếm theo từng task bằng biến cục bộ, bộ đếm tổng có `threading.Lock`. Có regression test `test_concurrent_tasks_on_one_worker_have_per_task_metrics`. Sau khi sửa: 1 290 token mỗi request.
 
 ## 4. Kết quả test
 
-Tất cả chạy ngoại tuyến bằng mô hình giả `ScriptedChatModel` (0 token): `pytest tests_mas/ -v` cho **32/32 passed** (3,1 s). Bộ test của lab `pytest tests/` cũng **32/32 passed**.
+Tất cả chạy ngoại tuyến bằng mô hình giả `ScriptedChatModel` (0 token): `pytest tests_mas/ -v` cho **37/37 passed**. Bộ test của lab `pytest` (thư mục `tests/`) cho **32/32 passed**.
+
+**Độ phủ mã** (`pytest-cov`, chỉ tiêu > 80%):
+
+| Phạm vi | Lệnh | Độ phủ |
+|---|---|---|
+| Hệ đa tác tử (`src/coordinator.py`, `src/agents`, `src/communication`, `src/tools`, `src/system.py`, `src/base_agent.py`, `src/logger.py`) | `pytest tests_mas/ --cov=src.agents --cov=src.communication --cov=src.tools --cov=src.coordinator --cov=src.system --cov=src.base_agent --cov=src.logger` | **95%** (930 câu lệnh, thiếu 50) |
+| Harness của lab (`src/lab`) | `pytest tests/ --cov=lab` | **90%** (359 câu lệnh, thiếu 35) |
 
 | Tệp | Loại | Số test | Nội dung |
 |---|---|---|---|
 | `test_02_coordinator.py` | unit | 10/10 | init, parse (luật, tham số, ưu tiên, cache, chỉ gọi LLM khi luật không khớp), route, execute song song qua queue, aggregate (success/partial/error), timeout, retry, fallback, input không hợp lệ, vượt `max_tasks` |
-| `test_03_workers.py` | unit + giao tiếp | 9/9 | Data/Code/Evaluator agent với tool thật, guardrail `max_iterations`, tool không tồn tại, mô hình lỗi, MessageQueue (gửi/nhận/log/timeout/chưa đăng ký/đầy/loop mới), `handle_next` trả lời đúng người gửi |
-| `test_04_tools.py` | unit | 7/7 | SQL (đúng giá trị so với SQLite trực tiếp; chặn DROP/DELETE/UPDATE/PRAGMA/đa câu lệnh; dữ liệu còn nguyên), REPL (chặn import, timeout, **không lộ khóa API**), path traversal, edit/run script, scoring, validation, comparison, report, aggregation, data quality, CSV |
-| `test_05_integration.py` | integration + e2e | 6/6 | coordinator ↔ worker ↔ tool với handoff (Code Agent nhận số liệu của Data Agent), pipeline đủ 3 giai đoạn + đếm token, kết quả partial khi một worker lỗi, độ trễ, 10 request đồng thời (10/10 thành công) |
+| `test_03_workers.py` | unit + giao tiếp | 11/11 | Data/Code/Evaluator (single-pass và agentic), guardrail `max_iterations`, tool không tồn tại, mô hình lỗi, MessageQueue (gửi/nhận/log/timeout/chưa đăng ký/đầy/loop mới), `handle_next`, **đếm token/tool theo từng task khi 8 task chạy song song trên một worker** |
+| `test_04_tools.py` | unit | 8/8 | SQL (đúng giá trị; chặn DROP/DELETE/UPDATE/PRAGMA/đa câu lệnh; dữ liệu còn nguyên), REPL (chặn import, timeout, **không lộ khóa API**), path traversal, edit/run script, scoring, validation, comparison, report, aggregation, data quality, CSV, **biểu đồ SVG** (escape nhãn, validate input) |
+| `test_05_integration.py` | integration + e2e | 8/8 | coordinator ↔ worker ↔ tool với handoff, pipeline đủ 3 giai đoạn + đếm token, kết quả partial, độ trễ, 10 request đồng thời, cắt dữ liệu bàn giao, khởi tạo hệ thống mặc định (tạo CSDL demo) |
 
 | Kịch bản lỗi | Test | Kết quả |
 |---|---|---|
-| Worker treo 1 s, timeout 0,2 s | `test_worker_timeout_is_reported_not_raised` | trả về `status=timeout`, không ném lỗi, `active_tasks` được dọn |
+| Worker treo 1 s, timeout 0,2 s | `test_worker_timeout_is_reported_not_raised` | `status=timeout`, không ném lỗi, `active_tasks` được dọn |
 | Worker lỗi lần đầu | `test_worker_error_is_retried` | thành công ở lần 2 (`attempts=2`) |
 | Worker ném ngoại lệ | `test_worker_exception_falls_back_to_other_worker` | chuyển sang worker dự phòng (`fallback_from`) |
 | SQL injection `SELECT ...; DROP TABLE` | `test_query_database_tool` | bị chặn ("only one statement is allowed") |
 | `../evil.txt`, `/etc/passwd` | `test_create_file_tool` | bị chặn, không có tệp nào ngoài sandbox |
 | LLM lặp gọi tool mãi | `test_max_iterations_guardrail` | dừng sau 3 vòng, `status=error` |
 
-Script kiểm tra độc lập (0 token): `scripts_mas/test_coordinator_standalone.py` cho 3/3 (2 worker song song xong trong 0,21 s so với 0,40 s nếu tuần tự; timeout → retry → fallback). `scripts_mas/test_tool_integration.py` cho 3/3 (doanh thu Q3 theo vùng: North 98378.20, West 80582.97, South 69371.57, East 57550.00; tạo `sales_chart.svg`; chấm 93,5/100).
+**Script kiểm tra độc lập (0 token):**
+- `scripts_mas/test_coordinator_standalone.py`: 3/3.
+- `scripts_mas/test_tool_integration.py`: 3/3.
+
+**Kiểm chứng với API thật:** `scripts_mas/test_resilience_real.py` cho 3/3, kết quả trong `resilience_results.json` (chi tiết ở mục 6).
 
 ## 5. Phân tích hiệu suất
 
-Benchmark mô hình thật `gpt-4.1-mini`: `python scripts_mas/benchmark.py --iterations 3`, kết quả trong `benchmark_results.json`. Có 3 kịch bản × 3 lần, tổng 9 request. Độ chính xác của Data Agent được chấm khách quan bằng cách so với giá trị tính trực tiếp bằng SQL (sai số ≤ 0,5%).
+**Lệnh và phạm vi đo:**
+- Lệnh: `python scripts_mas/benchmark.py --iterations 3 --rounds 3 --concurrency 10`, kết quả trong `benchmark_results.json`. Bản v1 trước tối ưu: 1 lượt, lưu ở `benchmark_results_v1.json`.
+- Mô hình `gpt-4.1-mini`, nhiệt độ 0, 3 kịch bản × 3 lần × **3 lượt** = 27 request tuần tự, cộng 10 request đồng thời.
+- Độ chính xác của Data Agent được chấm khách quan bằng cách so với giá trị SQL trực tiếp (sai số ≤ 0,5%).
 
-| Kịch bản | Min | Max | Avg | Median | Token TB | Thành công | Đúng số liệu | Điểm Evaluator |
-|---|---|---|---|---|---|---|---|---|
-| Simple data query (tổng doanh thu 2026) | 2,68 s | 3,40 s | 3,04 s | 3,05 s | 1 266 | 3/3 | 3/3 | – |
-| Code generation (script đọc CSV + chạy) | 4,14 s | 5,21 s | 4,79 s | 5,01 s | 2 292 | 3/3 | – | – |
-| Complex workflow (Q3 theo vùng + SVG + đánh giá) | 24,22 s | 51,60 s | 38,97 s | 41,08 s | 16 833 | 3/3 | 3/3 | 96 / 96 / 91,5 |
+**Kết quả v2 theo kịch bản** (27 request):
 
-**Chỉ số tổng hợp** (9 request):
+| Kịch bản | n | Min | Max | Avg | Median | P99 | Độ lệch chuẩn | Token TB | Thành công | Đúng số liệu | Điểm Evaluator TB |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| Simple data query | 9 | 2,25 s | 2,79 s | 2,45 s | 2,46 s | 2,77 s | 0,15 | 1 266 | 9/9 | 9/9 | – |
+| Code generation | 9 | 4,37 s | 5,89 s | 4,96 s | 4,70 s | 5,86 s | 0,53 | 2 617 | 9/9 | – | – |
+| Complex workflow | 9 | 10,47 s | 22,01 s | 16,57 s | 16,50 s | 21,98 s | 4,04 | 7 821 | 9/9 | 9/9 | 95,8 |
 
-| Chỉ số | Giá trị |
-|---|---|
-| Độ trễ P50 | 5,01 s |
-| Độ trễ P99 | 50,76 s |
-| Độ trễ trung bình | 15,6 s |
-| Thông lượng (tuần tự) | 3,85 request/phút |
-| Tỉ lệ lỗi | 0% |
-| Token | 61 175 cho 9 request (≈ 6 800/request) |
+**Nhiễu giữa 3 lượt** (cùng mã, cùng mô hình):
 
-**Phân rã theo worker trong Complex workflow** (từ `trace`):
+| Lượt | P50 | P99 | Độ trễ TB | Token | Thành công |
+|---|---|---|---|---|---|
+| 1 | 5,47 s | 21,47 s | 8,03 s | 35 658 | 9/9 |
+| 2 | 4,70 s | 19,25 s | 7,65 s | 33 007 | 9/9 |
+| 3 | 4,56 s | 21,26 s | 8,30 s | 36 667 | 9/9 |
 
-| Lần | Data | Code | Evaluator | Tổng token |
-|---|---|---|---|---|
-| 1 | 9,1 s / 1 779 tok | 10,6 s / 5 514 tok | 21,3 s / 7 926 tok | 15 219 |
-| 2 | 7,1 s / 1 868 tok | 24,4 s / 12 989 tok | 20,1 s / 10 378 tok | 25 235 |
-| 3 | 3,4 s / 1 411 tok | 9,2 s / 4 236 tok | 11,6 s / 4 399 tok | 10 046 |
+P50 dao động 4,56–5,47 s giữa các lượt, nên một lượt đơn lẻ có thể nằm trên hoặc dưới ngưỡng 5 s. Đây là lý do cần nhiều lượt.
 
-**Nút cổ chai:**
+**So sánh trước và sau tối ưu (v1 → v2):**
 
-1. **Evaluator chậm nhất (11–21 s, 4,4k–10,4k token).** Evaluator nhận toàn bộ kết quả trước đó trong `previous_results` và thường gọi 2–3 tool (`validate_format` ×2, `score_result`) trước khi trả JSON. Mỗi vòng gửi lại toàn bộ ngữ cảnh nên input token tăng theo số vòng. Hướng tối ưu: gọi Evaluator một lần không có tool (chấm trực tiếp, sau đó `ScoringTool` tính điểm có trọng số ở phía coordinator); hoặc chỉ gửi tóm tắt kết quả.
-2. **Số vòng của Code Agent dao động (3–5 vòng).** Lần 2 tốn 12 989 token và 24,4 s vì viết script, chạy, sửa rồi ghi lại (`create_file, run_script, python_repl, create_file` trong `logs/code_agent.log`). Đây là nguồn chính của phương sai độ trễ (24–52 s). Hướng tối ưu: cung cấp sẵn một hàm hoặc template vẽ SVG; giảm `max_iterations`.
-3. **Overhead của chính hệ thống không đáng kể.** `scripts_mas/profile_system.py` với mock worker: 50 request mất 1,36 s, trong đó 1,18 s là chờ worker giả. Overhead coordinator + queue + log khoảng 3,5 ms/request; P50 0,03 s. Thời gian thực gần như hoàn toàn là thời gian chờ API LLM.
-4. **Thông lượng 3,85 request/phút bị giới hạn vì benchmark chạy tuần tự** và độ trễ API, chứ không phải do kiến trúc. Test đồng thời (mock) cho thấy coordinator xử lý 10 request song song đúng.
+| Chỉ số | v1 (1 lượt, 9 request) | v2 (3 lượt, 27 request) | Thay đổi |
+|---|---|---|---|
+| Độ trễ P50 | 5,01 s | 4,70 s | −6% |
+| Độ trễ P99 | 50,76 s | 21,91 s | −57% |
+| Complex workflow, trung bình | 38,97 s | 16,57 s | −57% |
+| Complex workflow, token TB | 16 833 | 7 821 | −54% |
+| Evaluator trong complex workflow | 11,6–21,3 s; 4,4–10,4k token | 1,6–2,2 s; 0,6–1,1k token | khoảng −90% |
+| Token / request | khoảng 6 800 | 3 901 | −43% |
+| Thông lượng tuần tự | 3,85 req/phút | 7,51 req/phút | ×1,95 |
+| Thông lượng đồng thời (10 request) | không đo | **170 req/phút** (10/10 thành công, 3,5 s cho cả lô, P99 3,48 s, 1 290 token/request) | – |
+| Tỉ lệ lỗi | 0% | 0% | – |
 
-**Đề xuất tối ưu:**
+**Phân rã complex workflow v2:**
+- Data 2,7–9,5 s.
+- Code 5,9–12,2 s.
+- Evaluator 1,6–2,2 s.
 
-1. Evaluator chấm một lượt không dùng tool; dự kiến giảm khoảng 1/3 token của complex workflow (ước lượng từ bảng trên, chưa đo).
-2. Template SVG cho Code Agent để giảm số vòng sửa lỗi.
-3. Chỉ truyền tóm tắt `previous_results` để giảm input token.
-4. Cache câu trả lời cho câu hỏi dữ liệu lặp lại (cùng câu cho cùng 1 266 token mỗi lần).
+**Nút cổ chai còn lại:**
+1. **Code Agent bỏ qua một phần chỉ dẫn.** Ở 9/9 lần, nó gọi `make_bar_chart_svg` rồi vẫn gọi thêm `python_repl` (2 lần ở các lần chậm nhất) để "kiểm tra", dù prompt v2 nói kết quả tool đã xác nhận tệp. Ba lần chậm nhất (10,6–12,2 s) đúng là những lần có 2 lệnh `python_repl` (`logs/code_agent.log`). Câu bổ sung vào prompt không thay đổi hành vi: lượt đo **trước** khi thêm câu đó cũng có 9/9 lần gọi `python_repl` sau tool vẽ, nên cần chặn ở mức code chứ không thể chỉ dựa vào prompt.
+2. **Data Agent trong luồng phức tạp chậm hơn truy vấn đơn** (khoảng 6–7 s so với 2,5 s, cùng 2 lần gọi LLM) vì câu trả lời dài hơn (4 vùng, SQL, nhận xét). Thời gian sinh output tăng theo độ dài.
+3. **Ba giai đoạn tuần tự** là tổng ba độ trễ LLM. Đây là lý do P99 < 15 s chưa đạt.
+
+**Profile:**
+- *Mock, 0 token* (`scripts_mas/profile_system.py`): 50 request mất 1,36 s, trong đó 1,18 s chờ mock worker. Overhead coordinator + queue + log khoảng 3,5 ms/request.
+- *Mô hình thật* (`--real`, 5 request, lưu ở `report/profile_real.txt`): 47,47 s, trong đó luồng chính chờ ở event loop (`select.kqueue`) 47,44 s; `coordinator.handle_request` tự tốn 0,007 s.
+- *Giới hạn của cProfile:* chỉ đo luồng chính; các worker chạy trong thread pool nên phần gọi HTTP không xuất hiện trong bảng.
+- *Kết luận:* thời gian gần như hoàn toàn là chờ API LLM.
+
+**Đề xuất tiếp theo** (chưa làm):
+1. Chặn gọi lại `python_repl` sau `make_bar_chart_svg` ở mức code (ví dụ trả kết quả cuối ngay khi tool vẽ xong cho các yêu cầu chỉ cần biểu đồ).
+2. Cho Data Agent trả JSON ngắn thay vì văn bản dài.
+3. Chạy Evaluator song song với bước ghi tệp khi không cần kết quả của Code Agent.
 
 ## 6. Phân tích lỗi và khả năng chống chịu
 
-| Loại lỗi | Phát hiện | Xử lý | Dự phòng | Test |
+| Loại lỗi | Phát hiện | Xử lý | Dự phòng | Bằng chứng |
 |---|---|---|---|---|
-| Worker timeout | `asyncio.wait_for` quanh gửi + chờ reply | trả `status=timeout`, bỏ task chưa nhận khỏi hộp thư (`discard`), retry `max_retries` lần | `fallbacks` (worker thay thế), nếu không có thì kết quả `partial` | `test_worker_timeout_is_reported_not_raised`, standalone Test 3 |
-| Worker lỗi / ngoại lệ (API, mạng) | `BaseWorker.process` bắt mọi ngoại lệ thành `status=error`; ngoại lệ thoát ra thì `run_one` bắt | retry, sau đó fallback | `partial` + danh sách `errors` | `test_worker_error_is_retried`, `test_worker_exception_falls_back_to_other_worker`, `test_partial_result_when_one_worker_fails` |
-| Tool lỗi (SQL sai, script lỗi, tool không tồn tại) | `BaseTool.invoke` trả `{"status": "error"}` | LLM đọc lỗi và tự sửa ở vòng sau | `max_iterations` chặn vòng sửa vô hạn | `test_unknown_tool_and_model_errors_do_not_crash`, `test_max_iterations_guardrail` |
-| Input không hợp lệ | `parse_request` (rỗng, sai kiểu, > 5000 ký tự) | `InvalidRequestError`; `handle_request` trả `status=error` | – | `test_invalid_input_and_resource_exhaustion` |
+| Worker timeout | `asyncio.wait_for` quanh gửi + chờ reply | trả `status=timeout`, bỏ task chưa nhận khỏi hộp thư (`discard`), retry `max_retries` lần | `fallbacks`, nếu không có thì `partial` | unit test; **API thật**: timeout 0,5 s cho kết quả `timeout` sau 1,00 s (2 lần), `active_tasks` rỗng |
+| Lỗi API (401, mạng, rate limit) | `BaseWorker.process` bắt mọi ngoại lệ thành `status=error` | retry, sau đó fallback | `partial` + `errors` | **API thật**: khóa giả cho `OpenAIAuthenticationError 401` ở cả 2 lần thử, chuyển sang `data_agent_backup` thành công sau 4,2 s, câu trả lời chứa đúng giá trị SQL 1100575.42 |
+| Tool lỗi (SQL sai, script lỗi, tool không tồn tại) | `BaseTool.invoke` trả `{"status": "error"}` | LLM đọc lỗi và tự sửa ở vòng sau | `max_iterations` | `test_unknown_tool_and_model_errors_do_not_crash`, `test_max_iterations_guardrail` |
+| Yêu cầu phá hoại | validate SQL (từ khóa, một câu lệnh), DB mở read-only | từ chối trước khi chạy | – | **API thật**: yêu cầu "delete every row ... then drop the table" thì LLM tự từ chối, không gọi tool (mô tả tool ghi rõ read-only); 600 dòng trước và sau. Bộ chặn SQL không phải can thiệp ở lần này, nó được kiểm chứng riêng bằng `test_query_database_tool` |
+| Input không hợp lệ | `parse_request` | `InvalidRequestError`; `handle_request` trả `status=error` | – | `test_invalid_input_and_resource_exhaustion` |
 | Cạn tài nguyên | `max_tasks`, hộp thư `maxsize` | `ResourceExhaustedError`, `QueueFullError` | – | như trên, `test_message_queue_full_and_new_event_loop` |
-| Hành vi nguy hiểm | validate SQL / import / đường dẫn | từ chối trước khi chạy | read-only DB, tiến trình con không có khóa API | `test_query_database_tool`, `test_python_repl_tool`, `test_create_file_tool` |
+| Đồng thời trên cùng worker | – | đếm token/tool theo task, bộ đếm tổng có khóa | – | regression test; 10 request đồng thời 10/10 |
 
-Trong benchmark thật không xảy ra lỗi nào (0/9), nên cơ chế retry và fallback mới chỉ được kiểm chứng bằng mock.
+Benchmark v2 không gặp lỗi tự nhiên nào (0/27 + 0/10).
 
-**Tự đánh giá khả năng chống chịu: 7/10.**
-- Phát hiện và cô lập lỗi tốt: không có lỗi nào làm sập coordinator.
-- Thiếu circuit breaker, nên một worker liên tục lỗi vẫn bị gọi lại ở mỗi request.
-- Thiếu backoff khi gặp `RateLimitError`; hiện chỉ retry ngay.
-- Thread bị timeout vẫn chạy nốt và tốn token.
+**Tự đánh giá: 7,5/10.**
+- Retry, fallback và timeout đã được kiểm chứng với API thật.
+- Vẫn thiếu circuit breaker và backoff khi gặp 429.
+- Thread bị timeout vẫn chạy nốt và tốn token: ở kịch bản B, hai lần gọi API vẫn hoàn tất sau khi coordinator đã trả `timeout`.
 
 ## 7. So sánh thiết kế và thực tế
 
-Chỉ tiêu "dự kiến" lấy từ bảng chỉ tiêu của hướng dẫn Phần 5.3; "thực tế" lấy từ `benchmark_results.json` (9 request, mô hình thật).
+Chỉ tiêu "dự kiến" lấy từ bảng chỉ tiêu của hướng dẫn Phần 5.3.
 
-| Khía cạnh | Dự kiến | Thực tế | Đánh giá |
-|---|---|---|---|
-| Độ trễ P50 | < 5 s | 5,01 s | Không đạt, sát ngưỡng (truy vấn đơn 3,0 s đạt; complex workflow 39 s) |
-| Độ trễ P99 | < 15 s | 50,8 s | Không đạt: kéo dài bởi complex workflow 3 giai đoạn tuần tự (Evaluator 11–21 s, Code Agent tới 24 s) |
-| Thông lượng | > 10 req/phút | 3,85 req/phút (chạy tuần tự) | Không đạt khi chạy tuần tự; giới hạn bởi độ trễ API. Kiến trúc hỗ trợ đồng thời (10 request song song với mock: 10/10) nhưng chưa đo với API thật |
-| Tỉ lệ lỗi | < 1% | 0% (0/9) | Đạt (mẫu nhỏ) |
-| Token | 150k / 100 request | 61 175 / 9 request (khoảng 680k / 100) | Không đạt: complex workflow trung bình 16 833 token |
-| Độ chính xác số liệu | – | 6/6 câu trả lời Data Agent khớp ground truth SQL | Đạt |
-| Test | toàn bộ đạt | 32/32 (`tests_mas/`) + 32/32 (`tests/`) | Đạt. Độ phủ mã (coverage) chưa đo vì môi trường không cài `pytest-cov` |
+| Khía cạnh | Dự kiến | v1 | v2 (hiện tại) | Đánh giá |
+|---|---|---|---|---|
+| Độ trễ P50 | < 5 s | 5,01 s | **4,70 s** | Đạt trên tổng 27 request (một lượt đơn lẻ 5,47 s, nên sát ngưỡng) |
+| Độ trễ P99 | < 15 s | 50,8 s | 21,9 s | **Chưa đạt**: 3 giai đoạn LLM tuần tự + Code Agent gọi thêm `python_repl` (mục 5) |
+| Thông lượng | > 10 req/phút | 3,85 (tuần tự) | **170 (10 đồng thời)**; 7,51 (tuần tự) | Đạt khi chạy đồng thời; tuần tự bị giới hạn bởi độ trễ API |
+| Tỉ lệ lỗi | < 1% | 0% (0/9) | **0%** (0/37) | Đạt |
+| Token | 150k / 100 request | khoảng 680k / 100 | 390k / 100 (3 901/request) | **Chưa đạt** do complex workflow (7 821 token); truy vấn đơn 1 266 token, tức 127k / 100, là đạt |
+| Độ chính xác số liệu | – | 6/6 | **18/18** khớp ground truth SQL | Đạt |
+| Độ phủ mã | > 80% | chưa đo | **95%** (hệ đa tác tử), 90% (lab) | Đạt |
+| Test | toàn bộ đạt | 32/32 | **37/37** + 32/32 | Đạt |
 
 **Những gì tốt:**
-- Mẫu `reply_to` cho mỗi task vừa đơn giản vừa loại bỏ được race.
+- Mẫu `reply_to` loại bỏ race.
 - Tool trả lỗi dạng dữ liệu giúp LLM tự sửa.
-- Coordinator theo luật: 0 token và khoảng 3,5 ms.
-- Bảo vệ an toàn được test cụ thể (SQL injection, path traversal, không lộ khóa API).
+- Coordinator theo luật: 0 token, khoảng 3,5 ms.
+- Đổi Evaluator sang một lượt giảm khoảng 90% thời gian của nó mà điểm đánh giá vẫn ổn định (95,8 trung bình).
 
 **Những gì khó:**
-- Hai lỗi chỉ lộ ra khi chạy đồng thời hoặc trên macOS (race reply, giới hạn CPU kế thừa).
-- Phương sai độ trễ do số vòng LLM↔tool không kiểm soát được (Code Agent 3–5 vòng).
-- `asyncio` không hủy được thread đang chạy.
+- Ba lỗi chỉ lộ ra khi chạy đồng thời hoặc trên macOS (race reply, đếm token dùng chung, giới hạn CPU kế thừa).
+- Không ép được LLM bỏ bước kiểm tra thừa chỉ bằng prompt.
+- `asyncio` không hủy được thread.
 
 **Bài học:**
-1. Đo trước khi tối ưu: overhead hệ thống không đáng kể, chi phí nằm ở số vòng LLM và kích thước ngữ cảnh.
-2. Mọi tool chạy mã phải dùng môi trường tối thiểu (bài học giống hệt `make_backend` của lab: không kế thừa biến môi trường).
-3. Kiểm chứng số liệu bằng ground truth độc lập thay vì tin điểm của Evaluator (Evaluator chấm 91,5–96, nhưng chính nó là LLM).
+1. Đo trước khi tối ưu. Benchmark v1 chỉ đúng vào Evaluator, sửa đúng chỗ đó cho hiệu quả lớn nhất.
+2. Đo nhiều lượt: P50 lệch 0,9 s giữa các lượt.
+3. Mọi số liệu theo task phải tính theo task, không lấy hiệu của bộ đếm chung.
+4. Kiểm chứng số liệu bằng ground truth độc lập, không tin điểm của Evaluator (LLM chấm LLM).
 
 ## 8. Khả năng mở rộng
 
 **Thêm worker (horizontal):**
-- *Hiện tại:* 1 coordinator, 3 worker, mỗi worker một instance.
-- *Giới hạn:* coordinator là điểm lỗi duy nhất; `MessageQueue` chỉ trong một tiến trình. Nhiều request cùng gọi một worker vẫn chạy song song (mỗi task một thread), nhưng phải chia sẻ một kết nối SQLite có khóa.
-- *Giải pháp:* broker ngoài (Redis Streams/RabbitMQ) thay cho `asyncio.Queue`. Giao thức đã có `task_id`/`reply_to` nên đổi transport không cần đổi logic. Nhiều instance worker cùng đọc một hàng đợi; coordinator không giữ trạng thái giữa các request ngoài cache phân loại, nên nhân bản dễ.
+- *Hiện tại:* 1 coordinator, 3 worker.
+- *Đã đo:* coordinator xử lý đúng 10 request đồng thời trên cùng worker (170 req/phút, số liệu theo task đúng sau bản sửa).
+- *Giới hạn:* coordinator là điểm lỗi duy nhất; `MessageQueue` chỉ trong một tiến trình; một kết nối SQLite có khóa.
+- *Giải pháp:* broker ngoài (Redis Streams/RabbitMQ). Giao thức đã có `task_id`/`reply_to` nên đổi transport không cần đổi logic. Nhiều instance worker cùng đọc một hàng đợi. Coordinator không giữ trạng thái giữa các request ngoài cache phân loại.
 - *Khả thi:* trung bình.
 
 **Tác vụ lớn hơn (vertical):**
-- *Giới hạn:* truy vấn tối đa 1000 dòng, trả cho LLM 100 dòng, kết quả tool cắt ở 6000 ký tự. Ngữ cảnh tăng theo số vòng.
-- *Giải pháp:* đẩy tính toán xuống SQL hoặc script (đã khuyến khích trong system prompt), phân trang, và chỉ truyền tóm tắt `previous_results` giữa các giai đoạn.
+- *Giới hạn:* 1000 dòng SQL, 100 dòng trả cho LLM, kết quả tool 6000 ký tự, bàn giao 1500 ký tự.
+- *Giải pháp:* đẩy tính toán xuống SQL hoặc script, phân trang, tóm tắt kết quả bàn giao.
 - *Khả thi:* dễ.
 
 **Thông lượng:**
-- *Giới hạn:* độ trễ và rate limit của API LLM.
-- *Giải pháp:* chạy request đồng thời (đã hỗ trợ), backoff khi gặp 429, cache câu trả lời, dùng model nhỏ hơn cho Evaluator.
+- *Giới hạn:* độ trễ và rate limit của API.
+- *Giải pháp:* chạy đồng thời (đã có), backoff khi gặp 429, cache câu trả lời, model nhỏ hơn cho Evaluator.
 - *Khả thi:* dễ.
 
-**Tự đánh giá: 6/10.** Worker và giao thức đã sẵn sàng tách transport. Nhưng hàng đợi không bền vững, coordinator chưa chịu lỗi, và chưa có backoff hay circuit breaker.
+**Tự đánh giá: 6,5/10.**
 
 ## 9. Hạn chế
 
-1. **Chỉ một tiến trình, hàng đợi không bền vững:** mất thông điệp khi tiến trình dừng. *Giảm thiểu:* broker ngoài có ack.
-2. **Timeout không hủy được thread:** worker bị timeout vẫn chạy nốt và tốn token. *Giảm thiểu:* chạy worker trong tiến trình con hoặc dùng client LLM async có hỗ trợ cancel.
-3. **Sandbox chưa cách ly mức hệ điều hành:** tiến trình con vẫn đọc được tệp của người dùng (chỉ chặn import nguy hiểm, env tối thiểu, timeout, CPU). *Giảm thiểu:* Docker hoặc nsjail.
-4. **Phân loại theo từ khóa dễ sai với câu lạ:** ví dụ "report" luôn kéo theo Code Agent. LLM fallback chỉ dùng khi không khớp luật nào.
-5. **Benchmark nhỏ:** 3 kịch bản × 3 lần, chạy tuần tự, một mô hình, CSDL tổng hợp. Phương sai complex workflow rất lớn (24–52 s), nên các con số trên chỉ mang tính chỉ dấu.
-6. **Evaluator là LLM chấm LLM:** điểm 91,5–96 không phải bằng chứng chất lượng. Chỉ phần số liệu được kiểm chứng khách quan bằng SQL.
-7. **Timeout cố định** (120 s cho mọi loại task): nên cấu hình theo loại task.
+1. **Chỉ một tiến trình, hàng đợi không bền vững.** *Giảm thiểu:* broker ngoài có ack.
+2. **Timeout không hủy được thread:** worker bị timeout vẫn chạy nốt và tốn token (đã thấy ở kịch bản B). *Giảm thiểu:* client LLM async có hỗ trợ cancel, hoặc chạy worker trong tiến trình con.
+3. **Sandbox chưa cách ly mức hệ điều hành.** *Giảm thiểu:* Docker hoặc nsjail.
+4. **Phân loại theo từ khóa dễ sai với câu lạ;** LLM fallback chỉ dùng khi không khớp luật nào.
+5. **Benchmark vẫn nhỏ:** 3 kịch bản × 9 request, một mô hình, CSDL tổng hợp. Độ lệch chuẩn của complex workflow là 4,0 s.
+6. **Evaluator là LLM chấm LLM:** điểm 95,8 không phải bằng chứng chất lượng. Chỉ số liệu được kiểm chứng khách quan (18/18).
+7. **P99 < 15 s và 150k token / 100 request chưa đạt** với luồng 3 giai đoạn (mục 7).
+8. **cProfile không đo được thread worker;** phân tích thời gian của worker dựa trên log `task_end`.
 
 ## 10. Kết luận và bước tiếp theo
 
-Hệ thống gồm 4 agent (Coordinator, Data, Code, Evaluator) giao tiếp qua `MessageQueue` với mẫu `reply_to`, có timeout, retry, fallback và giới hạn vòng lặp. Kết quả đo được:
-- 32/32 test ngoại tuyến đạt.
-- Trên mô hình thật: 9/9 request thành công, 6/6 câu trả lời số liệu khớp ground truth.
-- Độ trễ 3 s cho truy vấn đơn và khoảng 39 s cho luồng 3 giai đoạn.
+Hệ thống gồm 4 agent giao tiếp qua `MessageQueue` với mẫu `reply_to`, có timeout, retry, fallback và giới hạn vòng lặp. Kết quả đo được:
+- 37/37 test ngoại tuyến, độ phủ 95%.
+- Trên mô hình thật: 37/37 request thành công, 18/18 câu trả lời số liệu khớp ground truth.
+- Retry, fallback và timeout hoạt động với lỗi API thật (401).
 
-Chi phí và độ trễ nằm gần như hoàn toàn ở số vòng LLM↔tool, đặc biệt ở Evaluator và Code Agent, chứ không ở kiến trúc (overhead khoảng 3,5 ms/request). Hệ thống phù hợp với phạm vi lab; để dùng thực tế cần hàng đợi bền vững, sandbox mạnh hơn và kiểm soát chi phí.
+Bản v2 tối ưu đúng các nút cổ chai đo được: P99 giảm 57%, token mỗi request giảm 43%, P50 4,7 s và thông lượng đồng thời 170 req/phút đạt chỉ tiêu. P99 (21,9 s) và token cho luồng 3 giai đoạn vẫn chưa đạt.
 
 **Bước tiếp theo:**
 1. *Ngắn hạn:*
-   - Evaluator chấm một lượt không dùng tool.
-   - Truyền tóm tắt `previous_results`.
-   - Backoff khi gặp 429, và circuit breaker cho worker lỗi liên tục.
+   - Chặn `python_repl` thừa sau `make_bar_chart_svg` ở mức code.
+   - Data Agent trả JSON ngắn.
+   - Backoff khi gặp 429 và circuit breaker.
 2. *Trung hạn:*
-   - Redis Streams thay `asyncio.Queue` (giữ nguyên giao thức `task_id`/`reply_to`).
+   - Redis Streams thay `asyncio.Queue`.
    - Worker chạy trong tiến trình riêng để hủy được khi timeout.
-   - Benchmark đồng thời với API thật.
 3. *Dài hạn:*
-   - Sandbox Docker cho Code Agent.
-   - Dashboard theo dõi từ `logs/*.log` (JSON).
-   - Định tuyến động theo tỉ lệ thành công (hướng 6d).
+   - Sandbox Docker.
+   - Dashboard từ `logs/*.log`.
+   - Định tuyến động theo tỉ lệ thành công (6d).
 
-## Phụ lục: Thử thách mở rộng 6b - Worker fallback
+## Phụ lục A: Thử thách mở rộng 6b - Worker fallback
 
-- **Cài đặt:** `Coordinator(fallbacks={"data_agent": ["code_agent"]})`. `execute_tasks_with_retry` thử lại task lỗi hoặc timeout `max_retries` lần; nếu vẫn lỗi thì lần lượt chuyển task sang các worker dự phòng. Kết quả thành công được đánh dấu `fallback_from`. Nếu mọi worker đều lỗi, coordinator trả kết quả `partial` hoặc `error` kèm `errors` thay vì ném ngoại lệ. Mã ở `src/coordinator.py` (`execute_tasks_with_retry`).
-- **Số liệu (mock, 0 token):**
-  - `scripts_mas/test_coordinator_standalone.py`, Test 3: worker chính treo 3 s, timeout 0,5 s, 2 lần thử đều timeout, sau đó chuyển sang `code_agent` thành công.
-  - `test_worker_exception_falls_back_to_other_worker`: worker ném ngoại lệ 2 lần (lần đầu và lần retry), sau đó fallback thành công.
-  - `test_partial_result_when_one_worker_fails`: không cấu hình fallback thì trả `partial` và giữ kết quả của worker còn lại.
-- **Cơ chế:** retry và fallback dùng lại cùng `execute_tasks`, nên mỗi lần thử vẫn đi qua `MessageQueue`, có log `retry` / `fallback` trong `logs/coordinator.log`.
-- **Hạn chế:** chưa xảy ra lỗi nào trong benchmark thật (0/9), nên fallback chưa được đo với API thật. Fallback giữa các worker khác chuyên môn chỉ hợp lý khi worker dự phòng có tool phù hợp (ví dụ Code Agent tính được số liệu bằng script nhưng không truy cập CSDL qua SQL). Thread của worker bị timeout vẫn chạy nốt.
-- **Bước tiếp theo:** chọn fallback theo tỉ lệ thành công đo được (kết hợp 6d), và thêm circuit breaker để bỏ qua worker lỗi liên tục.
+- **Cài đặt:** `Coordinator(fallbacks={"data_agent": ["data_agent_backup"]})`. `execute_tasks_with_retry` thử lại task lỗi hoặc timeout `max_retries` lần, sau đó lần lượt chuyển sang các worker dự phòng. Kết quả thành công được đánh dấu `fallback_from`. Nếu mọi worker đều lỗi, coordinator trả `partial` hoặc `error` kèm `errors`, không ném ngoại lệ. Các worker nhận tham số `name`, nên tạo được bản dự phòng cùng loại.
+- **Số liệu:**
+  - *Mock:* worker treo 3 s, timeout 0,5 s, 2 lần timeout rồi fallback thành công (`test_coordinator_standalone.py` Test 3). Ngoại lệ 2 lần rồi fallback (`test_worker_exception_falls_back_to_other_worker`).
+  - *API thật* (`test_resilience_real.py`, kịch bản A): worker chính nhận lỗi 401 ở cả 2 lần thử, chuyển sang `data_agent_backup` thành công trong 4,2 s, câu trả lời khớp ground truth 1100575.42.
+- **Cơ chế:** retry và fallback dùng lại `execute_tasks`, nên mọi lần thử đều đi qua `MessageQueue`, có log `retry` / `fallback` trong `logs/coordinator.log`.
+- **Hạn chế:** fallback giữa các worker khác chuyên môn chỉ hợp lý khi worker dự phòng có tool phù hợp. Chưa có circuit breaker, nên worker lỗi liên tục vẫn bị thử ở mọi request.
+- **Bước tiếp theo:** chọn worker dự phòng theo tỉ lệ thành công đo được (kết hợp 6d).
+
+## Phụ lục B: Lệnh tái lập
+
+```bash
+pytest tests_mas/ -v                                                    # 37 passed (0 token)
+pytest tests_mas/ --cov=src.agents --cov=src.communication --cov=src.tools \
+       --cov=src.coordinator --cov=src.system --cov=src.base_agent --cov=src.logger   # 95%
+python scripts_mas/test_coordinator_standalone.py                      # 3/3 (0 token)
+python scripts_mas/test_tool_integration.py                            # 3/3 (0 token)
+python scripts_mas/benchmark.py --iterations 3 --rounds 3 --concurrency 10   # benchmark_results.json
+python scripts_mas/test_resilience_real.py                             # 3/3, resilience_results.json
+python scripts_mas/profile_system.py --real > report/profile_real.txt
+python scripts_mas/debug_system.py "Analyze Q3 2026 revenue by region and create an SVG bar chart" --evaluate
+```
+
+Ghi chú lịch sử commit (hai chuỗi "part 2–5"): xem `report/COMMIT_HISTORY.md`.

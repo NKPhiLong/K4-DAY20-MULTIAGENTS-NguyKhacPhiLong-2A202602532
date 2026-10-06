@@ -1,7 +1,7 @@
 """Phần 4 - Tools: validate input, an toàn (SQL, sandbox, path traversal), kết quả đúng."""
 import sqlite3
 
-from src.tools.code_tools import CreateFileTool, EditFileTool, PythonREPLTool, RunScriptTool
+from src.tools.code_tools import CreateFileTool, EditFileTool, PythonREPLTool, RunScriptTool, SVGChartTool
 from src.tools.data_tools import AggregationTool, CSVParserTool, DataValidationTool
 from src.tools.database_tools import QueryDatabaseTool
 from src.tools.evaluation_tools import ComparisonTool, ReportGeneratorTool, ScoringTool, ValidationTool
@@ -87,3 +87,17 @@ def test_data_tools(tmp_path):
     csv = CSVParserTool(tmp_path).invoke({"filename": "x.csv"})
     assert csv["columns"] == ["a", "b"] and csv["rows"] == 2
     assert CSVParserTool(tmp_path).invoke({"filename": "../x.csv"})["status"] == "error"
+
+
+def test_svg_chart_tool(tmp_path):
+    tool = SVGChartTool(tmp_path)
+    r = tool.invoke({"filename": "charts/q3.svg", "title": "Q3 <revenue>", "labels": ["North", "South"],
+                     "values": [98378.2, 69371.57]})
+    svg = (tmp_path / "charts" / "q3.svg").read_text()
+    assert r["status"] == "success" and r["bars"] == 2 and svg.count("<rect") == 2 and "98,378.20" in svg
+    assert "&lt;revenue&gt;" in svg                                         # nhãn được escape
+    for bad in ({"filename": "a.png", "labels": ["a"], "values": [1]},
+                {"filename": "a.svg", "labels": ["a", "b"], "values": [1]},
+                {"filename": "../a.svg", "labels": ["a"], "values": [1]},
+                {"filename": "a.svg", "labels": ["a"], "values": [-1]}):
+        assert tool.invoke(bad)["status"] == "error", bad

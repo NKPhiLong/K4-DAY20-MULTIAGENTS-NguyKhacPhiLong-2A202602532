@@ -1,0 +1,30 @@
+         12668 function calls (12636 primitive calls) in 47.470 seconds
+
+   Ordered by: cumulative time
+   List reduced from 401 to 20 due to restriction <20>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.000    0.000   47.470   47.470 ~/.local/share/uv/python/cpython-3.11.16-macos-aarch64-none/lib/python3.11/asyncio/runners.py:160(run)
+        3    0.000    0.000   47.470   15.823 ~/.local/share/uv/python/cpython-3.11.16-macos-aarch64-none/lib/python3.11/asyncio/base_events.py:618(run_until_complete)
+        3    0.000    0.000   47.470   15.823 ~/.local/share/uv/python/cpython-3.11.16-macos-aarch64-none/lib/python3.11/asyncio/base_events.py:594(run_forever)
+      148    0.001    0.000   47.469    0.321 ~/.local/share/uv/python/cpython-3.11.16-macos-aarch64-none/lib/python3.11/asyncio/base_events.py:1859(_run_once)
+        1    0.000    0.000   47.469   47.469 ~/.local/share/uv/python/cpython-3.11.16-macos-aarch64-none/lib/python3.11/asyncio/runners.py:86(run)
+      148    0.000    0.000   47.445    0.321 ~/.local/share/uv/python/cpython-3.11.16-macos-aarch64-none/lib/python3.11/selectors.py:558(select)
+      150   47.444    0.316   47.444    0.316 {method 'control' of 'select.kqueue' objects}
+      169    0.000    0.000    0.023    0.000 ~/.local/share/uv/python/cpython-3.11.16-macos-aarch64-none/lib/python3.11/asyncio/events.py:82(_run)
+      169    0.001    0.000    0.023    0.000 {method 'run' of '_contextvars.Context' objects}
+       51    0.000    0.000    0.010    0.000 ~/K4-DAY20-MULTIAGENTS-NguyKhacPhiLong-2A202602532/src/logger.py:45(log_event)
+       40    0.000    0.000    0.010    0.000 ~/K4-DAY20-MULTIAGENTS-NguyKhacPhiLong-2A202602532/src/coordinator.py:182(send_and_wait)
+       51    0.000    0.000    0.010    0.000 ~/.local/share/uv/python/cpython-3.11.16-macos-aarch64-none/lib/python3.11/logging/__init__.py:1544(log)
+       51    0.000    0.000    0.010    0.000 ~/.local/share/uv/python/cpython-3.11.16-macos-aarch64-none/lib/python3.11/logging/__init__.py:1610(_log)
+       11    0.000    0.000    0.007    0.001 ~/K4-DAY20-MULTIAGENTS-NguyKhacPhiLong-2A202602532/scripts_mas/profile_system.py:32(run_system)
+       15    0.000    0.000    0.007    0.000 ~/K4-DAY20-MULTIAGENTS-NguyKhacPhiLong-2A202602532/src/system.py:49(process)
+       15    0.000    0.000    0.007    0.000 ~/K4-DAY20-MULTIAGENTS-NguyKhacPhiLong-2A202602532/src/coordinator.py:270(handle_request)
+       51    0.000    0.000    0.007    0.000 ~/.local/share/uv/python/cpython-3.11.16-macos-aarch64-none/lib/python3.11/logging/__init__.py:1636(handle)
+       51    0.000    0.000    0.007    0.000 ~/.local/share/uv/python/cpython-3.11.16-macos-aarch64-none/lib/python3.11/logging/__init__.py:1690(callHandlers)
+       51    0.000    0.000    0.007    0.000 ~/.local/share/uv/python/cpython-3.11.16-macos-aarch64-none/lib/python3.11/logging/__init__.py:965(handle)
+       51    0.000    0.000    0.007    0.000 ~/.local/share/uv/python/cpython-3.11.16-macos-aarch64-none/lib/python3.11/logging/__init__.py:1216(emit)
+
+
+
+metrics: {'requests': 5, 'latency_p50': 4.71, 'latency_p99': 28.234, 'latency_avg': 9.494, 'error_rate': 0.0, 'tokens_total': 18064, 'throughput_per_min': 6.32}

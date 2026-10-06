@@ -1,0 +1,245 @@
+{
+  "timestamp": "2026-10-06T13:57:58.189722+00:00",
+  "model": "openai:gpt-4.1-mini",
+  "overall": {
+    "requests": 9,
+    "latency_p50": 5.01,
+    "latency_p99": 50.758,
+    "latency_avg": 15.598,
+    "error_rate": 0.0,
+    "tokens_total": 61175,
+    "throughput_per_min": 3.85,
+    "wall_seconds": 140.4,
+    "requests_per_min": 3.85
+  },
+  "cases": [
+    {
+      "name": "Simple data query",
+      "request": "What is the total revenue in 2026?",
+      "iterations": 3,
+      "min": 2.68,
+      "max": 3.4,
+      "avg": 3.04,
+      "median": 3.05,
+      "p99": 3.393,
+      "success_rate": 1.0,
+      "avg_tokens": 1266,
+      "accuracy": 1.0,
+      "ground_truth": 1100575.42,
+      "runs": [
+        {
+          "latency": 3.4,
+          "status": "success",
+          "tokens": 1266,
+          "correct": true,
+          "eval_score": null,
+          "workers": [
+            [
+              "data_agent",
+              "success",
+              3.4,
+              1266
+            ]
+          ],
+          "errors": []
+        },
+        {
+          "latency": 3.05,
+          "status": "success",
+          "tokens": 1266,
+          "correct": true,
+          "eval_score": null,
+          "workers": [
+            [
+              "data_agent",
+              "success",
+              3.04,
+              1266
+            ]
+          ],
+          "errors": []
+        },
+        {
+          "latency": 2.68,
+          "status": "success",
+          "tokens": 1266,
+          "correct": true,
+          "eval_score": null,
+          "workers": [
+            [
+              "data_agent",
+              "success",
+              2.68,
+              1266
+            ]
+          ],
+          "errors": []
+        }
+      ]
+    },
+    {
+      "name": "Code generation",
+      "request": "Write a Python script that reads a CSV file and prints the number of rows, then run it on a small sample CSV you create.",
+      "iterations": 3,
+      "min": 4.14,
+      "max": 5.21,
+      "avg": 4.79,
+      "median": 5.01,
+      "p99": 5.206,
+      "success_rate": 1.0,
+      "avg_tokens": 2292,
+      "accuracy": null,
+      "ground_truth": null,
+      "runs": [
+        {
+          "latency": 5.01,
+          "status": "success",
+          "tokens": 2465,
+          "correct": null,
+          "eval_score": null,
+          "workers": [
+            [
+              "code_agent",
+              "success",
+              5.01,
+              2465
+            ]
+          ],
+          "errors": []
+        },
+        {
+          "latency": 5.21,
+          "status": "success",
+          "tokens": 2464,
+          "correct": null,
+          "eval_score": null,
+          "workers": [
+            [
+              "code_agent",
+              "success",
+              5.21,
+              2464
+            ]
+          ],
+          "errors": []
+        },
+        {
+          "latency": 4.14,
+          "status": "success",
+          "tokens": 1948,
+          "correct": null,
+          "eval_score": null,
+          "workers": [
+            [
+              "code_agent",
+              "success",
+              4.14,
+              1948
+            ]
+          ],
+          "errors": []
+        }
+      ]
+    },
+    {
+      "name": "Complex workflow",
+      "request": "Analyze Q3 2026 revenue by region, create an SVG bar chart of it and evaluate the result.",
+      "iterations": 3,
+      "min": 24.22,
+      "max": 51.6,
+      "avg": 38.97,
+      "median": 41.08,
+      "p99": 51.39,
+      "success_rate": 1.0,
+      "avg_tokens": 16833,
+      "accuracy": 1.0,
+      "ground_truth": 305882.74,
+      "runs": [
+        {
+          "latency": 41.08,
+          "status": "success",
+          "tokens": 15219,
+          "correct": true,
+          "eval_score": 96,
+          "workers": [
+            [
+              "data_agent",
+              "success",
+              9.12,
+              1779
+            ],
+            [
+              "code_agent",
+              "success",
+              10.61,
+              5514
+            ],
+            [
+              "evaluator_agent",
+              "success",
+              21.33,
+              7926
+            ]
+          ],
+          "errors": []
+        },
+        {
+          "latency": 51.6,
+          "status": "success",
+          "tokens": 25235,
+          "correct": true,
+          "eval_score": 96,
+          "workers": [
+            [
+              "data_agent",
+              "success",
+              7.1,
+              1868
+            ],
+            [
+              "code_agent",
+              "success",
+              24.41,
+              12989
+            ],
+            [
+              "evaluator_agent",
+              "success",
+              20.08,
+              10378
+            ]
+          ],
+          "errors": []
+        },
+        {
+          "latency": 24.22,
+          "status": "success",
+          "tokens": 10046,
+          "correct": true,
+          "eval_score": 91.5,
+          "workers": [
+            [
+              "data_agent",
+              "success",
+              3.37,
+              1411
+            ],
+            [
+              "code_agent",
+              "success",
+              9.23,
+              4236
+            ],
+            [
+              "evaluator_agent",
+              "success",
+              11.61,
+              4399
+            ]
+          ],
+          "errors": []
+        }
+      ]
+    }
+  ]
+}

@@ -146,5 +146,9 @@ def curate_skills(results_dir="results", source_condition="baseline", out_dir=No
 
 
 if __name__ == "__main__":
-    for p in curate_skills():
+    import argparse
+    ap = argparse.ArgumentParser(description="Write skills from the failed checks of the learning runs.")
+    ap.add_argument("--max-skills", type=int, default=3)
+    args = ap.parse_args()
+    for p in curate_skills(max_skills=args.max_skills):
         print("wrote", p)

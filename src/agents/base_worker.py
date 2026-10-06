@@ -22,14 +22,13 @@ class BaseWorker(BaseAgent):
         self.tools = {tool.name: tool for tool in tools}
         self.max_iterations = max_iterations          # guardrail: chặn vòng lặp vô hạn, đốt token
         self.max_tool_output = max_tool_output
-        self._executed_tools: list[str] = []
 
     # ------------------------------------------------------------------ đồng bộ
     def process(self, task_content: str, parameters: dict | None = None) -> dict:
         """Xử lý một task. KHÔNG ném lỗi: trả về {"status": "success" | "error", ...}."""
         t0 = time.perf_counter()
-        start_tokens = dict(self.tokens)
-        self._executed_tools = []
+        used: list[str] = []                                   # tool đã gọi trong RIÊNG task này
+        tokens = {"input": 0, "output": 0, "total": 0}         # token của RIÊNG task này
         log_event(self.logger, "task_start", task=task_content[:300])
         try:
             if self.model is None:
@@ -38,13 +37,14 @@ class BaseWorker(BaseAgent):
             llm = self.model.bind_tools([t.to_schema() for t in self.tools.values()]) if self.tools else self.model
             for iteration in range(1, self.max_iterations + 1):
                 response = llm.invoke(messages)
-                self._track_usage(response)
+                for k, v in self._track_usage(response).items():
+                    tokens[k] += v
                 messages.append(response)
                 if not response.tool_calls:
                     status, content = "success", self._content(response)
                     break
                 for tc in response.tool_calls:
-                    result = self._execute_tool(tc["name"], tc.get("args") or {})
+                    result = self._execute_tool(tc["name"], tc.get("args") or {}, used)
                     messages.append(ToolMessage(content=self._to_text(result), tool_call_id=tc.get("id") or tc["name"]))
             else:
                 status, content = "error", f"max_iterations ({self.max_iterations}) reached without a final answer"
@@ -56,8 +56,7 @@ class BaseWorker(BaseAgent):
             out = {"status": "error", "worker": self.name, "type": self.result_type, "result": None,
                    "error": f"{type(exc).__name__}: {exc}"}
             iteration = 0
-        out["metadata"] = {"tools_used": list(self._executed_tools), "iterations": iteration,
-                           "tokens": {k: self.tokens[k] - start_tokens[k] for k in self.tokens},
+        out["metadata"] = {"tools_used": used, "iterations": iteration, "tokens": tokens,
                            "seconds": round(time.perf_counter() - t0, 2)}
         log_event(self.logger, "task_end", status=out["status"], error=out.get("error"), **out["metadata"])
         return out
@@ -87,12 +86,13 @@ class BaseWorker(BaseAgent):
         parts.append(f"Available tools: {', '.join(self.tools) or 'none'}")
         return "\n\n".join(parts)
 
-    def _execute_tool(self, tool_name: str, tool_input: dict) -> dict:
-        """Gọi tool; tool không tồn tại -> trả lỗi cho LLM (không ném) để nó tự sửa."""
+    def _execute_tool(self, tool_name: str, tool_input: dict, used: list | None = None) -> dict:
+        """Gọi tool; tool không tồn tại -> trả lỗi cho LLM (không ném) để nó tự sửa. Ghi tên tool vào `used`."""
         tool = self.tools.get(tool_name)
         if tool is None:
             return {"status": "error", "error": f"Unknown tool: {tool_name}. Available: {list(self.tools)}"}
-        self._executed_tools.append(tool_name)
+        if used is not None:
+            used.append(tool_name)
         return tool.invoke(tool_input)
 
     def _to_text(self, result) -> str:
